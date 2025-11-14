@@ -151,7 +151,6 @@ class TimeSeriesTrainer:
             mode='min',
             factor=0.5,
             patience=patience // 2,
-            verbose=True,
         )
 
         best_val_loss = float('inf')
@@ -168,14 +167,24 @@ class TimeSeriesTrainer:
                 val_loss = self._validate_epoch(val_loader)
                 self.history["val_loss"].append(val_loss)
 
+                # Get current learning rate
+                current_lr = optimizer.param_groups[0]['lr']
+
                 logger.info(
                     f"Epoch {epoch + 1}/{epochs} - "
                     f"Train Loss: {train_loss:.6f} - "
-                    f"Val Loss: {val_loss:.6f}"
+                    f"Val Loss: {val_loss:.6f} - "
+                    f"LR: {current_lr:.2e}"
                 )
 
                 # Learning rate scheduling
+                old_lr = current_lr
                 scheduler.step(val_loss)
+                new_lr = optimizer.param_groups[0]['lr']
+
+                # Log if learning rate changed
+                if new_lr != old_lr:
+                    logger.info(f"Learning rate reduced: {old_lr:.2e} -> {new_lr:.2e}")
 
                 # Save best model
                 if save_best and val_loss < best_val_loss:
