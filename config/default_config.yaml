@@ -1,0 +1,51 @@
+# Default configuration for LLM fine-tuning
+
+model:
+  name: "gpt2"  # Model name or path
+  quantization: null  # Options: "4bit", "8bit", null
+  device_map: "auto"
+  torch_dtype: "float16"
+  trust_remote_code: false
+
+lora:
+  enabled: true
+  r: 8  # LoRA rank
+  lora_alpha: 32  # LoRA alpha scaling
+  lora_dropout: 0.1
+  target_modules:  # Modules to apply LoRA to
+    - "q_proj"
+    - "v_proj"
+    - "k_proj"
+    - "o_proj"
+  bias: "none"  # Options: "none", "all", "lora_only"
+  include_mlp: false  # Whether to include MLP layers
+
+training:
+  output_dir: "./outputs"
+  num_epochs: 3
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  warmup_steps: 100
+  max_grad_norm: 1.0
+  logging_steps: 10
+  save_steps: 500
+  save_total_limit: 3
+  fp16: true
+  optim: "adamw_torch"  # Options: "adamw_torch", "adamw_8bit", "paged_adamw_8bit"
+
+dataset:
+  name: "wikitext"  # HuggingFace dataset name or path
+  subset: "wikitext-2-raw-v1"
+  split: "train"
+  text_column: "text"
+  max_length: 512
+  validation_split: 0.1
+
+# Weights & Biases logging
+wandb:
+  enabled: false
+  project: "llm-finetuning"
+  entity: null
+  run_name: null

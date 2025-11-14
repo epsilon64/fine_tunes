@@ -1,0 +1,60 @@
+# Configuration for time series LLM fine-tuning
+
+model:
+  name: "gpt2"  # Base LLM model
+  hidden_dim: 768  # Will be auto-detected from model
+  use_pretrained: true
+  freeze_backbone: false
+  use_temporal_encoding: true  # Use learnable temporal encodings
+  use_adaptive: true  # Use AdaptiveTimeSeriesLLM
+
+data:
+  # Financial data settings
+  ticker: "AAPL"  # Stock ticker
+  start_date: "2020-01-01"
+  end_date: null  # If null, uses 'period' instead
+  period: "2y"  # Options: "1y", "2y", "5y", etc.
+
+  # Sequence settings
+  sequence_length: 30  # Number of historical steps
+  prediction_horizon: 1  # Number of steps to predict
+
+  # Features to use
+  features:
+    - "returns"  # Calculated returns
+    # - "sma_5"  # 5-day moving average
+    # - "sma_20"  # 20-day moving average
+    # - "volatility"  # Rolling volatility
+    # - "rsi"  # Relative Strength Index
+    # - "volume_change"  # Volume change percentage
+
+  # Data preprocessing
+  return_type: "log"  # Options: "log", "simple"
+  normalize: "standardize"  # Options: "standardize", "minmax", "none"
+  train_ratio: 0.8
+
+training:
+  output_dir: "./ts_outputs"
+  epochs: 50
+  batch_size: 32
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  gradient_clip: 1.0
+  patience: 10  # Early stopping patience
+  save_best: true
+
+lora:
+  enabled: true
+  r: 8
+  lora_alpha: 32
+  lora_dropout: 0.1
+  target_modules:
+    - "c_attn"  # For GPT-2
+    - "c_proj"
+
+evaluation:
+  metrics:
+    - "mse"
+    - "mae"
+    - "rmse"
+    - "direction_accuracy"
