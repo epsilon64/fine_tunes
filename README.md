@@ -15,6 +15,15 @@ A comprehensive framework for fine-tuning Large Language Models with efficient t
 - **Financial Time Series**: Specialized module for stock market price prediction
 - **Return Prediction**: Predict future returns based on historical prices/returns
 - **LLM-based Forecasting**: Leverage language model architectures for sequential prediction
+- **Tick Data Support**: Load high-frequency intraday data from multiple providers
+  - Yahoo Finance (free, no API key needed)
+  - Alpha Vantage (free tier: 500 calls/day)
+  - Twelve Data (free tier: 800 calls/day)
+  - Polygon.io (free tier with delayed data)
+  - IEX Cloud (credit-based free tier)
+- **Comprehensive Error Metrics**: MSE, RMSE, MAE, MAPE, R², Direction Accuracy, and more
+- **Advanced Bar Types**: Time bars, volume bars, and tick bars
+- **Tick-specific Features**: VWAP, spread proxy, volume intensity, intraday volatility
 
 ## Installation
 
@@ -59,15 +68,43 @@ from src.timeseries.financial_preprocessor import FinancialDataPreprocessor
 
 # Prepare data
 preprocessor = FinancialDataPreprocessor()
-data = preprocessor.load_stock_data("AAPL", start_date="2020-01-01")
-train_data, test_data = preprocessor.prepare_sequences(data)
+data = preprocessor.prepare_data(ticker="AAPL", start_date="2020-01-01")
 
 # Create and train model
-ts_model = TimeSeriesLLM(model_name="gpt2", use_lora=True)
-ts_model.train(train_data, epochs=10)
+ts_model = TimeSeriesLLM(
+    model_name="gpt2",
+    d_input=data['X_train'].shape[-1],
+    d_output=data['y_train'].shape[-1]
+)
+
+from src.timeseries.ts_trainer import TimeSeriesTrainer
+trainer = TimeSeriesTrainer(ts_model)
+trainer.train(data, epochs=10)
 
 # Predict
-predictions = ts_model.predict(test_data, steps=5)
+predictions = trainer.predict(data["X_test"], steps_ahead=5)
+```
+
+### Tick Data Loading (Intraday Data)
+
+```python
+from src.timeseries.tick_data_loader import TickDataLoader
+
+# Load intraday data (no API key needed for Yahoo)
+tick_loader = TickDataLoader(provider="yahoo")
+tick_data = tick_loader.load_intraday_data(
+    ticker="AAPL",
+    interval="5min",
+    period="5d"
+)
+
+# Or use paid providers for more data
+tick_loader = TickDataLoader(provider="alphavantage", api_key="YOUR_API_KEY")
+tick_data = tick_loader.load_intraday_data(ticker="AAPL", interval="1min")
+
+# Prepare tick data for training
+preprocessor = FinancialDataPreprocessor()
+data = preprocessor.prepare_tick_data(tick_data)
 ```
 
 ## Project Structure
@@ -97,6 +134,8 @@ See the `examples/` directory for:
 - `basic_finetuning.py`: Standard fine-tuning workflow
 - `lora_finetuning.py`: LoRA-based efficient fine-tuning
 - `timeseries_forecasting.py`: Financial time series prediction
+- `timeseries_detailed.py`: Comprehensive forecasting with error analysis
+- `tick_data_forecasting.py`: High-frequency tick data forecasting
 
 ## Requirements
 

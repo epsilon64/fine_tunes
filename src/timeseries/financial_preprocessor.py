@@ -280,3 +280,219 @@ class FinancialDataPreprocessor:
             return data * (norm_params["max"] - norm_params["min"]) + norm_params["min"]
         else:
             return data
+
+    def prepare_tick_data(
+        self,
+        tick_data: pd.DataFrame,
+        features: Optional[List[str]] = None,
+        normalize: str = "standardize",
+        train_ratio: float = 0.8,
+    ) -> Dict[str, np.ndarray]:
+        """
+        Prepare tick/intraday data for training.
+
+        Args:
+            tick_data: DataFrame with tick data (from TickDataLoader)
+            features: List of features to use
+            normalize: Normalization method
+            train_ratio: Train/test split ratio
+
+        Returns:
+            Dictionary with prepared data
+        """
+        logger.info("Preparing tick data for training...")
+
+        # Calculate returns and features for tick data
+        tick_data = self._calculate_tick_features(tick_data)
+
+        # Select features
+        if features is None:
+            features = ['tick_returns']
+
+        # Drop NaN values
+        tick_data = tick_data.dropna()
+
+        # Extract feature matrix
+        feature_data = tick_data[features].values
+
+        # Normalize
+        feature_data, norm_params = self.normalize_data(feature_data, method=normalize)
+
+        # Create sequences
+        X, y = self.create_sequences(feature_data)
+
+        # Train/test split
+        split_idx = int(len(X) * train_ratio)
+
+        result = {
+            "X_train": X[:split_idx],
+            "y_train": y[:split_idx],
+            "X_test": X[split_idx:],
+            "y_test": y[split_idx:],
+            "norm_params": norm_params,
+            "features": features,
+            "dates": tick_data.index.values,
+        }
+
+        logger.info(f"Tick data prepared: train={len(X[:split_idx])}, test={len(X[split_idx:])}")
+
+        return result
+
+    def _calculate_tick_features(
+        self,
+        tick_data: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Calculate features specific to tick data.
+
+        Args:
+            tick_data: DataFrame with OHLCV tick data
+
+        Returns:
+            DataFrame with tick features
+        """
+        df = tick_data.copy()
+
+        # Tick returns
+        df['tick_returns'] = self.calculate_returns(df['close'].values)
+
+        # Intraday volatility (high-low range)
+        df['hl_range'] = (df['high'] - df['low']) / df['close']
+
+        # Bid-ask spread proxy (high - low as percentage of close)
+        df['spread_proxy'] = (df['high'] - df['low']) / df['close']
+
+        # Volume intensity (volume relative to rolling average)
+        df['volume_intensity'] = df['volume'] / (df['volume'].rolling(20).mean() + 1e-8)
+
+        # Price momentum (short-term moving average)
+        df['momentum_5'] = df['close'].rolling(5).mean() / df['close']
+        df['momentum_10'] = df['close'].rolling(10).mean() / df['close']
+
+        # Intraday VWAP (Volume Weighted Average Price)
+        df['vwap'] = (df['close'] * df['volume']).rolling(20).sum() / (df['volume'].rolling(20).sum() + 1e-8)
+        df['vwap_deviation'] = (df['close'] - df['vwap']) / (df['vwap'] + 1e-8)
+
+        # Tick volatility (rolling std of returns)
+        df['tick_volatility'] = df['tick_returns'].rolling(20).std()
+
+        return df
+
+    def aggregate_ticks_to_bars(
+        self,
+        tick_data: pd.DataFrame,
+        bar_type: str = "time",
+        bar_size: Union[int, str] = "5min",
+    ) -> pd.DataFrame:
+        """
+        Aggregate tick data into bars.
+
+        Args:
+            tick_data: DataFrame with tick data
+            bar_type: Type of bars ('time', 'volume', 'tick')
+            bar_size: Size of bars (for time: '5min', '1h'; for volume/tick: integer)
+
+        Returns:
+            DataFrame with aggregated bars
+        """
+        if bar_type == "time":
+            # Time-based bars (standard OHLCV resampling)
+            bars = tick_data.resample(bar_size).agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum',
+            }).dropna()
+
+        elif bar_type == "volume":
+            # Volume bars: each bar has approximately equal volume
+            bars = self._create_volume_bars(tick_data, int(bar_size))
+
+        elif bar_type == "tick":
+            # Tick bars: each bar has fixed number of ticks
+            bars = self._create_tick_bars(tick_data, int(bar_size))
+
+        else:
+            raise ValueError(f"Unknown bar type: {bar_type}")
+
+        logger.info(f"Created {len(bars)} {bar_type} bars from {len(tick_data)} ticks")
+        return bars
+
+    def _create_volume_bars(
+        self,
+        tick_data: pd.DataFrame,
+        volume_per_bar: int,
+    ) -> pd.DataFrame:
+        """Create volume-based bars."""
+        bars = []
+        current_volume = 0
+        current_bar = {
+            'open': None,
+            'high': -np.inf,
+            'low': np.inf,
+            'close': None,
+            'volume': 0,
+            'timestamp': None,
+        }
+
+        for idx, row in tick_data.iterrows():
+            if current_bar['open'] is None:
+                current_bar['open'] = row['open']
+                current_bar['timestamp'] = idx
+
+            current_bar['high'] = max(current_bar['high'], row['high'])
+            current_bar['low'] = min(current_bar['low'], row['low'])
+            current_bar['close'] = row['close']
+            current_bar['volume'] += row['volume']
+
+            current_volume += row['volume']
+
+            if current_volume >= volume_per_bar:
+                bars.append(current_bar.copy())
+                current_volume = 0
+                current_bar = {
+                    'open': None,
+                    'high': -np.inf,
+                    'low': np.inf,
+                    'close': None,
+                    'volume': 0,
+                    'timestamp': None,
+                }
+
+        if current_bar['open'] is not None:
+            bars.append(current_bar)
+
+        df = pd.DataFrame(bars)
+        df = df.set_index('timestamp')
+        return df[['open', 'high', 'low', 'close', 'volume']]
+
+    def _create_tick_bars(
+        self,
+        tick_data: pd.DataFrame,
+        ticks_per_bar: int,
+    ) -> pd.DataFrame:
+        """Create tick-count based bars."""
+        bars = []
+
+        for i in range(0, len(tick_data), ticks_per_bar):
+            chunk = tick_data.iloc[i:i + ticks_per_bar]
+            if len(chunk) == 0:
+                continue
+
+            bar = {
+                'open': chunk['open'].iloc[0],
+                'high': chunk['high'].max(),
+                'low': chunk['low'].min(),
+                'close': chunk['close'].iloc[-1],
+                'volume': chunk['volume'].sum(),
+            }
+            bars.append(bar)
+
+        df = pd.DataFrame(bars)
+        # Use the last timestamp of each bar
+        timestamps = [tick_data.index[min(i + ticks_per_bar - 1, len(tick_data) - 1)]
+                     for i in range(0, len(tick_data), ticks_per_bar)]
+        df.index = timestamps[:len(df)]
+
+        return df
