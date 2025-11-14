@@ -266,16 +266,128 @@ def test_lagllama_model():
     try:
         from src.timeseries import LagLlamaModel
 
+        # Configuration
+        TICKER = "AAPL"
+        OUTPUT_DIR = "./outputs/lagllama_forecasting"
+        Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
         logger.info("\nNote: Lag-Llama requires:")
         logger.info("  1. GluonTS: pip install gluonts[torch]")
-        logger.info("  2. Model checkpoint from: https://github.com/time-series-foundation-models/lag-llama")
-        logger.info("\nSkipping Lag-Llama test in this demo...")
-        logger.info("See documentation for full setup instructions.")
+        logger.info("  2. Lag-Llama checkpoint (download from HuggingFace or GitHub)")
+        logger.info("  3. Checkpoint path: Specify in model initialization")
 
-        return None
+        # Check if user wants to proceed
+        logger.info("\nAttempting to initialize Lag-Llama...")
+
+        # 1. Prepare data (same as Chronos)
+        logger.info("\n1. Preparing data...")
+        preprocessor = FinancialDataPreprocessor(
+            sequence_length=32,  # Lag-Llama typically uses 32
+            prediction_horizon=5,
+        )
+
+        data = preprocessor.prepare_data(
+            ticker=TICKER,
+            start_date="2022-01-01",
+            features=["returns"],
+            train_ratio=0.8,
+        )
+
+        logger.info(f"  Training samples: {len(data['X_train'])}")
+        logger.info(f"  Test samples: {len(data['X_test'])}")
+
+        # 2. Try to load Lag-Llama model
+        logger.info("\n2. Loading Lag-Llama model...")
+        logger.info("   (This will fail if checkpoint is not available)")
+
+        try:
+            # Try default HuggingFace path
+            model = LagLlamaModel(
+                model_path="time-series-foundation-models/lag-llama",
+                device="cpu",
+                context_length=32,
+                prediction_length=5,
+            )
+
+            logger.info("   ✓ Model loaded successfully!")
+
+            # 3. Generate forecasts
+            logger.info("\n3. Generating probabilistic forecasts...")
+
+            predictions = []
+            actuals = []
+
+            num_samples = min(20, len(data['X_test']))
+            for i in range(num_samples):
+                context = data['X_test'][i, :, 0]
+
+                # Generate probabilistic forecast
+                forecast = model.predict(
+                    context=context,
+                    prediction_length=5,
+                    num_samples=100,
+                )
+
+                # Take median
+                pred = forecast.median(dim=0 if len(forecast.shape) > 1 else 0).values.numpy()
+                predictions.append(pred)
+
+                actual = data['y_test'][i, :, 0]
+                actuals.append(actual)
+
+            predictions = np.array(predictions)
+            actuals = np.array(actuals)
+
+            # Ensure correct shapes
+            if len(predictions.shape) == 1:
+                predictions = predictions.reshape(-1, 1)
+            if len(actuals.shape) == 1:
+                actuals = actuals.reshape(-1, 1)
+
+            # 4. Calculate metrics
+            logger.info("\n4. Evaluating forecasts...")
+
+            for horizon in range(min(predictions.shape[1], actuals.shape[1])):
+                pred_h = predictions[:, horizon]
+                actual_h = actuals[:, horizon]
+
+                mae = np.mean(np.abs(pred_h - actual_h))
+                rmse = np.sqrt(np.mean((pred_h - actual_h) ** 2))
+                direction_acc = np.mean(np.sign(pred_h) == np.sign(actual_h))
+
+                logger.info(f"\n  Horizon {horizon + 1}:")
+                logger.info(f"    MAE: {mae:.6f}")
+                logger.info(f"    RMSE: {rmse:.6f}")
+                logger.info(f"    Direction Accuracy: {direction_acc:.2%}")
+
+            # 5. Visualize
+            logger.info("\n5. Creating visualizations...")
+
+            visualizer = ForecastVisualizer(output_dir=OUTPUT_DIR)
+            visualizer.plot_comprehensive_comparison(
+                predictions=predictions[:, 0].reshape(-1, 1),
+                actuals=actuals[:, 0].reshape(-1, 1),
+                title=f"Lag-Llama - {TICKER} Forecast Analysis"
+            )
+
+            logger.info("\n" + "=" * 70)
+            logger.info("✓ Lag-Llama model test completed successfully!")
+            logger.info("=" * 70)
+
+            return True
+
+        except FileNotFoundError:
+            logger.warning("\n✗ Lag-Llama checkpoint not found!")
+            logger.info("\nTo use Lag-Llama:")
+            logger.info("1. Download checkpoint:")
+            logger.info("   git clone https://huggingface.co/time-series-foundation-models/lag-llama")
+            logger.info("2. Or visit: https://github.com/time-series-foundation-models/lag-llama")
+            logger.info("3. Update model_path in the code")
+            logger.info("\nSkipping Lag-Llama test...")
+            return None
 
     except ImportError as e:
-        logger.error(f"\n✗ Lag-Llama dependencies not installed: {e}")
+        logger.warning(f"\n✗ Lag-Llama dependencies not installed: {e}")
         logger.info("\nTo install Lag-Llama dependencies:")
         logger.info("  pip install gluonts[torch]")
         logger.info("\nSkipping Lag-Llama test...")
@@ -283,6 +395,8 @@ def test_lagllama_model():
 
     except Exception as e:
         logger.error(f"\n✗ Lag-Llama test failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -327,8 +441,9 @@ def main():
     # Test Chronos
     chronos_result = test_chronos_model()
 
-    # Test Lag-Llama (optional)
-    # lagllama_result = test_lagllama_model()
+    # Test Lag-Llama (optional - requires checkpoint)
+    logger.info("\n")
+    lagllama_result = test_lagllama_model()
 
     # Show comparison insights
     if chronos_result:
@@ -344,6 +459,16 @@ def main():
         logger.info("  - Limited data scenarios")
         logger.info("  - Baseline comparisons")
         logger.info("  - Production with consistent performance")
+
+    if lagllama_result:
+        logger.info("\n✓ Lag-Llama model works! Great for:")
+        logger.info("  - Probabilistic forecasting with uncertainty")
+        logger.info("  - Long-range dependencies")
+        logger.info("  - Distribution forecasting")
+
+    if lagllama_result is None:
+        logger.info("\n⚠ Lag-Llama: Checkpoint not available")
+        logger.info("  Install GluonTS and download checkpoint to enable")
     else:
         logger.info("⚠ Chronos not available. Install with:")
         logger.info("  pip install git+https://github.com/amazon-science/chronos-forecasting.git")

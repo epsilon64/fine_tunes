@@ -188,6 +188,47 @@ visualizer.plot_predictions_vs_actual(
 
 All examples now include these visualizations automatically!
 
+### Multi-Ticker Training for Better Accuracy
+
+Train a single model on multiple stock tickers to improve generalization:
+
+```python
+from examples.multi_ticker_training import MultiTickerDataLoader
+
+# Load data from multiple tickers
+tickers = ["AAPL", "GOOGL", "MSFT", "NVDA", "TSLA"]
+loader = MultiTickerDataLoader(
+    tickers=tickers,
+    sequence_length=30,
+    prediction_horizon=5,
+    start_date="2021-01-01"
+)
+
+# Combine all data for training
+combined_data = loader.load_all_tickers()
+
+# Train model on combined dataset
+model = AdaptiveTimeSeriesLLM(...)
+trainer = TimeSeriesTrainer(model)
+trainer.train(combined_data, epochs=30)
+
+# Evaluate on each ticker separately
+ticker_data = loader.load_ticker_separately()
+results = evaluate_per_ticker(model, trainer, ticker_data)
+```
+
+**Benefits of Multi-Ticker Training:**
+- **Better Generalization**: Learns patterns across different stocks
+- **Improved Accuracy**: More diverse training data
+- **Transfer Learning**: Apply to new stocks without retraining
+- **Robustness**: Less sensitive to individual stock anomalies
+- **Market Understanding**: Captures broader market dynamics
+
+Run the example:
+```bash
+python examples/multi_ticker_training.py
+```
+
 ## Project Structure
 
 ```
@@ -217,7 +258,8 @@ See the `examples/` directory for:
 - `timeseries_forecasting.py`: Financial time series prediction
 - `timeseries_detailed.py`: Comprehensive forecasting with error analysis
 - `tick_data_forecasting.py`: High-frequency tick data forecasting
-- `specialized_models_forecasting.py`: **NEW!** Zero-shot forecasting with Chronos/Lag-Llama
+- `specialized_models_forecasting.py`: Zero-shot forecasting with Chronos/Lag-Llama
+- `multi_ticker_training.py`: **NEW!** Train on multiple stocks for improved accuracy
 
 ## Requirements
 
