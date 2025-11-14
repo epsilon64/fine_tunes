@@ -58,9 +58,9 @@ class FinancialDataPreprocessor:
         logger.info(f"Loading data for {ticker}")
 
         if start_date and end_date:
-            data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+            data = yf.download(ticker, start=start_date, end=end_date, progress=False, auto_adjust=True)
         else:
-            data = yf.download(ticker, period=period, progress=False)
+            data = yf.download(ticker, period=period, progress=False, auto_adjust=True)
 
         logger.info(f"Loaded {len(data)} data points")
         return data
@@ -104,8 +104,23 @@ class FinancialDataPreprocessor:
         """
         df = data.copy()
 
-        # Returns
-        df['returns'] = self.calculate_returns(df['Close'].values)
+        # Standardize column names (handle both lowercase and uppercase)
+        column_mapping = {}
+        for col in df.columns:
+            lower_col = col.lower()
+            if lower_col in ['close', 'open', 'high', 'low', 'volume']:
+                column_mapping[col] = lower_col.capitalize()
+
+        if column_mapping:
+            df = df.rename(columns=column_mapping)
+
+        # Returns - use pandas method to properly handle length
+        if self.return_type == "log":
+            # Log returns: log(P_t / P_{t-1})
+            df['returns'] = np.log(df['Close'] / df['Close'].shift(1))
+        else:
+            # Simple returns: (P_t - P_{t-1}) / P_{t-1}
+            df['returns'] = df['Close'].pct_change()
 
         # Moving averages
         df['sma_5'] = df['Close'].rolling(window=5).mean()
@@ -353,8 +368,11 @@ class FinancialDataPreprocessor:
         """
         df = tick_data.copy()
 
-        # Tick returns
-        df['tick_returns'] = self.calculate_returns(df['close'].values)
+        # Tick returns - use pandas method to properly handle length
+        if self.return_type == "log":
+            df['tick_returns'] = np.log(df['close'] / df['close'].shift(1))
+        else:
+            df['tick_returns'] = df['close'].pct_change()
 
         # Intraday volatility (high-low range)
         df['hl_range'] = (df['high'] - df['low']) / df['close']
