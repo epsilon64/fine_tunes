@@ -27,6 +27,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import logging
 
+from src.config import config
 from src.timeseries.alphavantage_loader import AlphaVantageLoader, print_alphavantage_info
 from src.timeseries.financial_preprocessor import FinancialDataPreprocessor
 from src.timeseries.ts_model import AdaptiveTimeSeriesLLM
@@ -48,20 +49,23 @@ def main():
     # Print API information
     print_alphavantage_info()
 
-    # Configuration
-    API_KEY = os.getenv("ALPHAVANTAGE_API_KEY")  # Or set directly: "YOUR_KEY_HERE"
+    # Configuration - loads from .env file or environment variables
+    API_KEY = config.alphavantage_api_key
 
     if not API_KEY:
         logger.error("\n" + "=" * 70)
         logger.error("⚠️  ALPHA VANTAGE API KEY REQUIRED")
         logger.error("=" * 70)
-        logger.error("\nPlease set your API key:")
-        logger.error("1. Get free key: https://www.alphavantage.co/support/#api-key")
-        logger.error("2. Set environment variable:")
+        logger.error("\nPlease set your API key using one of these methods:")
+        logger.error("\n1. Create .env file (recommended):")
+        logger.error("   cp .env.example .env")
+        logger.error("   # Edit .env and set: ALPHAVANTAGE_API_KEY=your_key_here")
+        logger.error("\n2. Set environment variable:")
         logger.error("   export ALPHAVANTAGE_API_KEY='your_key_here'")
-        logger.error("3. Or edit this script and set API_KEY directly")
-        logger.error("\nExample with API key:")
-        logger.error("   python alphavantage_intraday.py")
+        logger.error("\n3. Get free API key at:")
+        logger.error("   https://www.alphavantage.co/support/#api-key")
+        logger.error("\nThen run:")
+        logger.error("   python examples/alphavantage_intraday.py")
         return
 
     TICKER = "AAPL"

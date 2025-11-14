@@ -31,8 +31,34 @@ A comprehensive framework for fine-tuning Large Language Models with efficient t
 ## Installation
 
 ```bash
+# 1. Install dependencies
 pip install -r requirements.txt
+
+# 2. Set up environment variables (for API keys)
+cp .env.example .env
+# Edit .env and add your API keys
 ```
+
+### Environment Setup
+
+The project uses a `.env` file for configuration (API keys, paths, etc.):
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and set your API keys:
+# - ALPHAVANTAGE_API_KEY (for intraday data)
+# - Other optional API keys
+
+# The .env file is git-ignored for security
+```
+
+**Getting API Keys (all free):**
+- **Alpha Vantage**: https://www.alphavantage.co/support/#api-key
+- **Twelve Data**: https://twelvedata.com/pricing
+- **Polygon.io**: https://polygon.io/pricing
+- **IEX Cloud**: https://iexcloud.io/pricing
 
 ## Quick Start
 
