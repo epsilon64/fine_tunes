@@ -125,13 +125,13 @@ class ChronosModel(nn.Module):
             context = context.squeeze()
 
         # Generate forecast
+        # Note: ChronosPipeline.predict() expects context as first positional argument
         forecast = self.pipeline.predict(
-            context=context,
+            context,  # Historical data (positional argument)
             prediction_length=prediction_length,
             num_samples=num_samples,
             temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
+            limit_prediction_length=False,
         )
 
         return forecast
