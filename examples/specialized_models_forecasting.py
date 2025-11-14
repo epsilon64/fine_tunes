@@ -81,6 +81,10 @@ def test_chronos_model():
 
         # Make predictions on test set
         num_samples = min(50, len(data['X_test']))  # Predict on first 50 samples
+        prediction_length = data['y_test'].shape[1]
+
+        logger.info(f"   Generating {num_samples} forecasts with horizon {prediction_length}...")
+
         for i in range(num_samples):
             # Get context
             context = data['X_test'][i, :, 0]  # (seq_len,)
@@ -88,27 +92,53 @@ def test_chronos_model():
             # Generate forecast
             forecast = model.predict(
                 context=context,
-                prediction_length=data['y_test'].shape[1],
+                prediction_length=prediction_length,
                 num_samples=10,  # Generate 10 samples for uncertainty
                 temperature=1.0,
             )
 
+            # Debug first iteration
+            if i == 0:
+                logger.info(f"   Forecast shape: {forecast.shape}")
+                logger.info(f"   y_test shape: {data['y_test'].shape}")
+
             # Take median of samples
             pred = forecast.median(dim=0).values.numpy()
+
+            # Debug first iteration
+            if i == 0:
+                logger.info(f"   Median prediction shape: {pred.shape}")
+
             predictions.append(pred)
 
             # Get actual
             actual = data['y_test'][i, :, 0]
+
+            # Debug first iteration
+            if i == 0:
+                logger.info(f"   Actual shape: {actual.shape}")
+
             actuals.append(actual)
 
         predictions = np.array(predictions)
         actuals = np.array(actuals)
 
+        # Debug: Check shapes
+        logger.info(f"\n  Predictions shape: {predictions.shape}")
+        logger.info(f"  Actuals shape: {actuals.shape}")
+
+        # Ensure correct shapes
+        if len(predictions.shape) == 1:
+            predictions = predictions.reshape(-1, 1)
+        if len(actuals.shape) == 1:
+            actuals = actuals.reshape(-1, 1)
+
         # 4. Calculate metrics
         logger.info("\n4. Evaluating forecasts...")
 
         # For multi-step forecasting, we'll look at each horizon
-        for horizon in range(predictions.shape[1]):
+        n_horizons = min(predictions.shape[1], actuals.shape[1])
+        for horizon in range(n_horizons):
             pred_h = predictions[:, horizon]
             actual_h = actuals[:, horizon]
 
@@ -154,41 +184,49 @@ def test_chronos_model():
         plt.close()
 
         # Use new ForecastVisualizer for comprehensive analysis
-        logger.info("\n5b. Generating comprehensive forecast visualizations...")
-        visualizer = ForecastVisualizer(output_dir=OUTPUT_DIR)
+        try:
+            logger.info("\n5b. Generating comprehensive forecast visualizations...")
+            visualizer = ForecastVisualizer(output_dir=OUTPUT_DIR)
 
-        # Create comprehensive comparison plot for first horizon
-        visualizer.plot_comprehensive_comparison(
-            predictions=predictions[:, 0].reshape(-1, 1),
-            actuals=actuals[:, 0].reshape(-1, 1),
-            title=f"Chronos-{MODEL_SIZE} - {TICKER} Comprehensive Analysis"
-        )
-
-        # Multi-horizon analysis
-        if predictions.shape[1] > 1:
-            logger.info("\n5c. Creating multi-horizon forecast analysis...")
-            horizon_names = [f"H+{i+1}" for i in range(predictions.shape[1])]
-            visualizer.plot_forecast_horizon_analysis(
-                predictions=predictions,
-                actuals=actuals,
-                horizon_names=horizon_names,
-                title=f"Chronos-{MODEL_SIZE} - Multi-Horizon Analysis"
+            # Create comprehensive comparison plot for first horizon
+            visualizer.plot_comprehensive_comparison(
+                predictions=predictions[:, 0].reshape(-1, 1),
+                actuals=actuals[:, 0].reshape(-1, 1),
+                title=f"Chronos-{MODEL_SIZE} - {TICKER} Comprehensive Analysis"
             )
+            logger.info("   ✓ Comprehensive comparison plot created")
 
-        # Reconstruct prices from returns
-        logger.info("\n5d. Reconstructing and visualizing price forecasts...")
-        # Get initial price from the stock data at the start of test period
-        test_start_idx = int(len(data['X_train']) + data['X_train'].shape[1])
-        stock_data = preprocessor.load_stock_data(ticker=TICKER, start_date="2022-01-01")
-        if test_start_idx < len(stock_data):
-            initial_price = stock_data['Close'].iloc[test_start_idx]
+            # Multi-horizon analysis
+            if predictions.shape[1] > 1 and actuals.shape[1] > 1:
+                logger.info("\n5c. Creating multi-horizon forecast analysis...")
+                horizon_names = [f"H+{i+1}" for i in range(min(predictions.shape[1], actuals.shape[1]))]
+                visualizer.plot_forecast_horizon_analysis(
+                    predictions=predictions,
+                    actuals=actuals,
+                    horizon_names=horizon_names,
+                    title=f"Chronos-{MODEL_SIZE} - Multi-Horizon Analysis"
+                )
+                logger.info("   ✓ Multi-horizon analysis plot created")
 
-            visualizer.plot_price_reconstruction(
-                returns_predictions=predictions[:, 0].reshape(-1, 1),
-                returns_actuals=actuals[:, 0].reshape(-1, 1),
-                initial_price=initial_price,
-                title=f"Chronos-{MODEL_SIZE} - {TICKER} Price Forecast vs Realized Prices"
-            )
+            # Reconstruct prices from returns
+            logger.info("\n5d. Reconstructing and visualizing price forecasts...")
+            # Get initial price from the stock data at the start of test period
+            test_start_idx = int(len(data['X_train']) + data['X_train'].shape[1])
+            stock_data = preprocessor.load_stock_data(ticker=TICKER, start_date="2022-01-01")
+            if test_start_idx < len(stock_data):
+                initial_price = stock_data['Close'].iloc[test_start_idx]
+
+                visualizer.plot_price_reconstruction(
+                    returns_predictions=predictions[:, 0].reshape(-1, 1),
+                    returns_actuals=actuals[:, 0].reshape(-1, 1),
+                    initial_price=initial_price,
+                    title=f"Chronos-{MODEL_SIZE} - {TICKER} Price Forecast vs Realized Prices"
+                )
+                logger.info("   ✓ Price reconstruction plot created")
+
+        except Exception as viz_error:
+            logger.warning(f"   Warning: Some visualizations failed: {viz_error}")
+            logger.info("   Continuing with other outputs...")
 
         logger.info("\n" + "=" * 70)
         logger.info("✓ Chronos model test completed successfully!")
