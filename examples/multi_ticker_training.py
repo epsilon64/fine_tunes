@@ -1,9 +1,19 @@
 """
-Multi-Ticker Time Series Training.
+Multi-Ticker Time Series Training with Maximum Historical Data.
 
 This example demonstrates training a time series model on multiple stock tickers
-to improve generalization and accuracy. Training on diverse data helps the model
-learn robust patterns that transfer across different stocks.
+with as much historical data as possible (up to 15 years per ticker).
+
+LLMs require substantial training data for good performance:
+- Minimum: 10,000+ samples
+- Recommended: 50,000+ samples for best results
+- This example can generate 100,000+ samples from 20+ tickers
+
+Training on diverse, long-term data helps the model:
+- Learn robust patterns that transfer across different stocks
+- Capture various market conditions (bull, bear, sideways)
+- Generalize better to unseen stocks
+- Handle different volatility regimes
 """
 
 import sys
@@ -20,6 +30,11 @@ from src.timeseries.financial_preprocessor import FinancialDataPreprocessor
 from src.timeseries.ts_model import AdaptiveTimeSeriesLLM
 from src.timeseries.ts_trainer import TimeSeriesTrainer
 from src.timeseries.visualization import ForecastVisualizer
+from src.timeseries.bulk_data_loader import (
+    BulkDataLoader,
+    get_recommended_tickers,
+    print_data_statistics,
+)
 from peft import get_peft_model, LoraConfig as PeftLoraConfig, TaskType
 
 logging.basicConfig(level=logging.INFO)
@@ -216,32 +231,53 @@ def main():
     logger.info("=" * 70)
 
     # Configuration
-    TICKERS = [
-        "AAPL",  # Apple
-        "GOOGL", # Google
-        "MSFT",  # Microsoft
-        "NVDA",  # NVIDIA
-        "TSLA",  # Tesla
-        "META",  # Meta
-        "AMZN",  # Amazon
-    ]
     MODEL_NAME = "gpt2"
     SEQUENCE_LENGTH = 30
     PREDICTION_HORIZON = 5
     OUTPUT_DIR = "./outputs/multi_ticker"
+    START_DATE = "2010-01-01"  # Pull 15 years of data!
 
     Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
-    # 1. Load multi-ticker data
+    # 1. Download maximum historical data
     logger.info("\n" + "=" * 70)
-    logger.info("STEP 1: LOADING MULTI-TICKER DATA")
+    logger.info("STEP 1: DOWNLOADING MAXIMUM HISTORICAL DATA")
+    logger.info("=" * 70)
+
+    # Get recommended tickers for diverse training
+    # Options: 'tech', 'finance', 'healthcare', 'diverse', 'sp500_top'
+    TICKERS = get_recommended_tickers('sp500_top')[:30]  # Top 30 S&P 500 stocks
+
+    logger.info(f"\nTargeting {len(TICKERS)} tickers for maximum data diversity")
+    logger.info(f"Period: {START_DATE} to today (~15 years)")
+    logger.info(f"This will provide 100,000+ training samples for the LLM")
+
+    # Initialize bulk data loader (with caching for faster re-runs)
+    bulk_loader = BulkDataLoader(
+        cache_dir="./data_cache",
+        use_cache=True,  # Cache to avoid re-downloading
+    )
+
+    # Download all ticker data
+    raw_ticker_data = bulk_loader.download_multiple_tickers(
+        tickers=TICKERS,
+        start_date=START_DATE,
+        delay=0.3,  # Respectful rate limiting
+    )
+
+    # Print comprehensive statistics
+    print_data_statistics(raw_ticker_data)
+
+    # 2. Process data for training
+    logger.info("\n" + "=" * 70)
+    logger.info("STEP 2: PROCESSING DATA FOR TRAINING")
     logger.info("=" * 70)
 
     data_loader = MultiTickerDataLoader(
-        tickers=TICKERS,
+        tickers=list(raw_ticker_data.keys()),  # Use successfully downloaded tickers
         sequence_length=SEQUENCE_LENGTH,
         prediction_horizon=PREDICTION_HORIZON,
-        start_date="2021-01-01",
+        start_date=START_DATE,
         features=["returns", "sma_5", "sma_20", "volatility", "rsi"],
     )
 
@@ -251,9 +287,14 @@ def main():
     # Also load ticker data separately for evaluation
     ticker_data = data_loader.load_ticker_separately()
 
-    # 2. Create model
+    logger.info("\n✓ Data processing complete!")
+    logger.info(f"  Training samples: {len(combined_data['X_train']):,}")
+    logger.info(f"  Test samples: {len(combined_data['X_test']):,}")
+    logger.info(f"  Total data points: {len(combined_data['X_train']) * SEQUENCE_LENGTH:,}")
+
+    # 3. Create model
     logger.info("\n" + "=" * 70)
-    logger.info("STEP 2: CREATING MODEL")
+    logger.info("STEP 3: CREATING MODEL")
     logger.info("=" * 70)
 
     model = AdaptiveTimeSeriesLLM(
@@ -274,7 +315,7 @@ def main():
 
     # 3. Apply LoRA for efficient training
     logger.info("\n" + "=" * 70)
-    logger.info("STEP 3: APPLYING LoRA")
+    logger.info("STEP 4: APPLYING LoRA")
     logger.info("=" * 70)
 
     peft_config = PeftLoraConfig(
@@ -298,7 +339,7 @@ def main():
 
     # 4. Train model on combined data
     logger.info("\n" + "=" * 70)
-    logger.info("STEP 4: TRAINING ON MULTI-TICKER DATA")
+    logger.info("STEP 5: TRAINING ON MULTI-TICKER DATA")
     logger.info("=" * 70)
 
     trainer = TimeSeriesTrainer(
@@ -334,7 +375,7 @@ def main():
 
     # 5. Evaluate on combined test set
     logger.info("\n" + "=" * 70)
-    logger.info("STEP 5: EVALUATING ON COMBINED TEST SET")
+    logger.info("STEP 6: EVALUATING ON COMBINED TEST SET")
     logger.info("=" * 70)
 
     test_metrics = trainer.evaluate(
@@ -348,7 +389,7 @@ def main():
 
     # 6. Evaluate per ticker
     logger.info("\n" + "=" * 70)
-    logger.info("STEP 6: PER-TICKER EVALUATION")
+    logger.info("STEP 7: PER-TICKER EVALUATION")
     logger.info("=" * 70)
 
     results_df = evaluate_per_ticker(
@@ -364,7 +405,7 @@ def main():
 
     # 7. Summary visualization
     logger.info("\n" + "=" * 70)
-    logger.info("STEP 7: CREATING SUMMARY VISUALIZATIONS")
+    logger.info("STEP 8: CREATING SUMMARY VISUALIZATIONS")
     logger.info("=" * 70)
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))

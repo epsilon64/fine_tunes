@@ -188,45 +188,60 @@ visualizer.plot_predictions_vs_actual(
 
 All examples now include these visualizations automatically!
 
-### Multi-Ticker Training for Better Accuracy
+### Multi-Ticker Training with Maximum Historical Data
 
-Train a single model on multiple stock tickers to improve generalization:
+Train on up to 15 years of data from 30+ tickers for best LLM performance:
 
 ```python
-from examples.multi_ticker_training import MultiTickerDataLoader
+from src.timeseries import BulkDataLoader, get_recommended_tickers
 
-# Load data from multiple tickers
-tickers = ["AAPL", "GOOGL", "MSFT", "NVDA", "TSLA"]
-loader = MultiTickerDataLoader(
+# Download maximum historical data (cached for fast re-runs)
+tickers = get_recommended_tickers('sp500_top')[:30]  # Top 30 S&P 500
+loader = BulkDataLoader(cache_dir="./data_cache", use_cache=True)
+
+# Pull 15 years of daily data per ticker
+ticker_data = loader.download_multiple_tickers(
     tickers=tickers,
-    sequence_length=30,
-    prediction_horizon=5,
-    start_date="2021-01-01"
+    start_date="2010-01-01",  # ~15 years of history
+    delay=0.3,  # Respectful rate limiting
 )
 
-# Combine all data for training
-combined_data = loader.load_all_tickers()
-
-# Train model on combined dataset
-model = AdaptiveTimeSeriesLLM(...)
-trainer = TimeSeriesTrainer(model)
-trainer.train(combined_data, epochs=30)
-
-# Evaluate on each ticker separately
-ticker_data = loader.load_ticker_separately()
-results = evaluate_per_ticker(model, trainer, ticker_data)
+# This generates 100,000+ training samples!
+# LLMs need substantial data for good performance
 ```
 
-**Benefits of Multi-Ticker Training:**
-- **Better Generalization**: Learns patterns across different stocks
-- **Improved Accuracy**: More diverse training data
-- **Transfer Learning**: Apply to new stocks without retraining
-- **Robustness**: Less sensitive to individual stock anomalies
-- **Market Understanding**: Captures broader market dynamics
+**Data Scale for LLM Training:**
+- **Minimum**: 10,000 samples for basic performance
+- **Recommended**: 50,000+ samples for good results
+- **This Example**: 100,000+ samples from 30 tickers × 15 years
+- **Total Data Points**: 3,000,000+ individual observations
+
+**Benefits:**
+- ✅ **Maximum Data**: Up to 15 years per ticker (not limited to 1 year)
+- ✅ **True Historical Data**: Daily OHLCV data (not limited "tick" data)
+- ✅ **Smart Caching**: Saves downloads to avoid hitting rate limits
+- ✅ **Better Generalization**: Learns from bull, bear, and sideways markets
+- ✅ **Improved Accuracy**: Vastly more diverse training data
+- ✅ **Transfer Learning**: Apply to new stocks without retraining
+- ✅ **Market Regimes**: Captures different volatility periods
+
+**Recommended Ticker Sets:**
+```python
+# Tech-focused (20 stocks)
+tickers = get_recommended_tickers('tech')
+
+# Diverse sectors (20 stocks)
+tickers = get_recommended_tickers('diverse')
+
+# Top S&P 500 (30 stocks)
+tickers = get_recommended_tickers('sp500_top')
+```
 
 Run the example:
 ```bash
 python examples/multi_ticker_training.py
+# Downloads 30 tickers × ~3,500 days = 100,000+ samples
+# Training time: ~30-60 minutes on CPU
 ```
 
 ## Project Structure
