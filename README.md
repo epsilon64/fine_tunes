@@ -88,6 +88,52 @@ trainer.train(data, epochs=10)
 predictions = trainer.predict(data["X_test"], steps_ahead=5)
 ```
 
+### Alpha Vantage Intraday Data (TRUE Tick-Level Data)
+
+For true intraday/tick-level data with extended history:
+
+```python
+from src.timeseries import AlphaVantageLoader
+
+# Get FREE API key: https://www.alphavantage.co/support/#api-key
+loader = AlphaVantageLoader(
+    api_key="YOUR_FREE_API_KEY",
+    cache_dir="./alphavantage_cache",
+    use_cache=True  # Avoid re-downloads!
+)
+
+# Download 6 months of 5-minute bars (~75,000 bars!)
+intraday_data = loader.download_extended_history(
+    ticker="AAPL",
+    interval="5min",  # 1min, 5min, 15min, 30min, 60min
+    months_back=6,
+)
+```
+
+**Alpha Vantage vs Yahoo Finance:**
+
+| Feature | Alpha Vantage | Yahoo Finance |
+|---------|---------------|---------------|
+| **Intraday Resolution** | 1min, 5min, 15min, 30min, 60min | 1min, 5min, 15min, 30min, 60min |
+| **Historical Depth** | Up to 2 years | 7-60 days |
+| **Data Quality** | Professional-grade | Consumer-grade |
+| **Free Tier** | 5 calls/min, 500/day | Unlimited but limited history |
+| **Caching** | Built-in | Not needed (limited data) |
+| **Best For** | LLM training with deep history | Quick experiments |
+
+**Data Volume Comparison:**
+- Alpha Vantage 5min × 6 months = **~75,000 bars** ✅
+- Yahoo Finance 5min × 7 days = **~2,000 bars** ❌
+
+Run the example:
+```bash
+# Set your API key
+export ALPHAVANTAGE_API_KEY='your_key_here'
+
+# Run example
+python examples/alphavantage_intraday.py
+```
+
 ### Tick Data Loading (Intraday Data)
 
 ```python
@@ -274,7 +320,8 @@ See the `examples/` directory for:
 - `timeseries_detailed.py`: Comprehensive forecasting with error analysis
 - `tick_data_forecasting.py`: High-frequency tick data forecasting
 - `specialized_models_forecasting.py`: Zero-shot forecasting with Chronos/Lag-Llama
-- `multi_ticker_training.py`: **NEW!** Train on multiple stocks for improved accuracy
+- `multi_ticker_training.py`: Train on multiple stocks with 15 years of data
+- `alphavantage_intraday.py`: **NEW!** True intraday data with extended history (75,000+ bars)
 
 ## Requirements
 
