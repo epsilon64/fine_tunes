@@ -70,25 +70,25 @@ class AlphaVantageLoader:
         self.calls_per_minute = 5
         self.call_times = []
 
-    def _get_cache_path(self, ticker: str, interval: str) -> Path:
+    def _get_cache_path(self, cache_key: str, interval: str) -> Path:
         """Get cache file path."""
-        return self.cache_dir / f"{ticker}_{interval}_intraday.pkl"
+        return self.cache_dir / f"{cache_key}_{interval}_intraday.pkl"
 
-    def _save_to_cache(self, data: pd.DataFrame, ticker: str, interval: str):
+    def _save_to_cache(self, data: pd.DataFrame, cache_key: str, interval: str):
         """Save data to cache."""
-        cache_path = self._get_cache_path(ticker, interval)
+        cache_path = self._get_cache_path(cache_key, interval)
         with open(cache_path, 'wb') as f:
             pickle.dump(data, f)
-        logger.info(f"  ✓ Cached {ticker} {interval} data ({len(data)} bars)")
+        logger.info(f"  ✓ Cached {cache_key} {interval} data ({len(data)} bars)")
 
-    def _load_from_cache(self, ticker: str, interval: str) -> Optional[pd.DataFrame]:
+    def _load_from_cache(self, cache_key: str, interval: str) -> Optional[pd.DataFrame]:
         """Load data from cache if available."""
-        cache_path = self._get_cache_path(ticker, interval)
+        cache_path = self._get_cache_path(cache_key, interval)
         if cache_path.exists():
             try:
                 with open(cache_path, 'rb') as f:
                     data = pickle.load(f)
-                logger.info(f"  ✓ Loaded {ticker} from cache ({len(data)} bars)")
+                logger.info(f"  ✓ Loaded {cache_key} from cache ({len(data)} bars)")
                 return data
             except Exception as e:
                 logger.warning(f"  Failed to load cache: {e}")
@@ -220,6 +220,7 @@ class AlphaVantageLoader:
         ticker: str,
         interval: str = "5min",
         months_back: int = 6,
+        force_refresh: bool = False,
     ) -> pd.DataFrame:
         """
         Download extended intraday history using month slices.
@@ -231,10 +232,21 @@ class AlphaVantageLoader:
             ticker: Stock ticker symbol
             interval: Time interval
             months_back: Number of months to download (max ~24)
+            force_refresh: Force re-download even if cached
 
         Returns:
             Combined DataFrame with extended history
         """
+        # Check if we have the full combined dataset cached
+        combined_cache_key = f"{ticker}_extended_{months_back}m"
+        if self.use_cache and not force_refresh:
+            cached_combined = self._load_from_cache(combined_cache_key, interval)
+            if cached_combined is not None:
+                logger.info(f"\n✓ Loaded extended history from cache")
+                logger.info(f"  Total bars: {len(cached_combined):,}")
+                logger.info(f"  Date range: {cached_combined.index[0]} to {cached_combined.index[-1]}")
+                return cached_combined
+
         logger.info(f"\nDownloading {months_back} months of {interval} data for {ticker}")
         logger.info("=" * 70)
 
@@ -246,19 +258,20 @@ class AlphaVantageLoader:
             target_date = current_date - timedelta(days=30 * i)
             month_str = target_date.strftime("%Y-%m")
 
-            # Download this month's data
+            # Download this month's data (with individual month caching)
             month_data = self.download_intraday(
                 ticker=ticker,
                 interval=interval,
                 outputsize="full",
                 month=month_str,
+                force_refresh=force_refresh,
             )
 
             if not month_data.empty:
                 all_data.append(month_data)
 
-            # Small delay between requests
-            if i < months_back - 1:
+            # Small delay between requests (only if not from cache)
+            if i < months_back - 1 and not month_data.empty:
                 time.sleep(1)
 
         if not all_data:
@@ -269,6 +282,10 @@ class AlphaVantageLoader:
         combined = pd.concat(all_data)
         combined = combined[~combined.index.duplicated(keep='first')]
         combined = combined.sort_index()
+
+        # Cache the combined dataset
+        if self.use_cache:
+            self._save_to_cache(combined, combined_cache_key, interval)
 
         logger.info("\n" + "=" * 70)
         logger.info(f"✓ Extended history complete:")
