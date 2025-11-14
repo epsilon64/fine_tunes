@@ -24,6 +24,7 @@ from typing import Dict, Tuple
 from src.timeseries.financial_preprocessor import FinancialDataPreprocessor
 from src.timeseries.ts_model import AdaptiveTimeSeriesLLM
 from src.timeseries.ts_trainer import TimeSeriesTrainer
+from src.timeseries.visualization import ForecastVisualizer
 from src.core.lora import LoRAConfig
 
 logging.basicConfig(level=logging.INFO)
@@ -415,6 +416,29 @@ def main():
     # 7. Generate visualizations
     logger.info("\n7. Generating error analysis visualizations...")
     evaluator.plot_error_analysis(y_test, y_pred, OUTPUT_DIR)
+
+    # Use new ForecastVisualizer for comprehensive analysis
+    logger.info("\n7b. Generating comprehensive forecast visualizations...")
+    visualizer = ForecastVisualizer(output_dir=OUTPUT_DIR)
+
+    # Create comprehensive comparison plot
+    visualizer.plot_comprehensive_comparison(
+        predictions=y_pred.reshape(-1, 1),
+        actuals=y_test.reshape(-1, 1),
+        title=f"{TICKER} - Comprehensive Forecast Analysis"
+    )
+
+    # Reconstruct prices from returns for price-level visualization
+    logger.info("\n7c. Reconstructing and visualizing price forecasts...")
+    # Get initial price from the stock data
+    initial_price = stock_data['Close'].iloc[len(data['X_train']) * (SEQUENCE_LENGTH + PREDICTION_HORIZON)]
+
+    visualizer.plot_price_reconstruction(
+        returns_predictions=y_pred.reshape(-1, 1),
+        returns_actuals=y_test.reshape(-1, 1),
+        initial_price=initial_price,
+        title=f"{TICKER} - Price Forecast vs Realized Prices"
+    )
 
     # 8. Calculate rolling metrics
     logger.info("\n8. Computing rolling window metrics...")

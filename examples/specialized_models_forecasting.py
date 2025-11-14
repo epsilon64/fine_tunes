@@ -22,6 +22,7 @@ from src.timeseries import (
     FinancialDataPreprocessor,
     TimeSeriesTrainer,
     print_specialized_model_comparison,
+    ForecastVisualizer,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -151,6 +152,43 @@ def test_chronos_model():
         plt.savefig(f"{OUTPUT_DIR}/chronos_forecasts.png", dpi=300)
         logger.info(f"   Plot saved to {OUTPUT_DIR}/chronos_forecasts.png")
         plt.close()
+
+        # Use new ForecastVisualizer for comprehensive analysis
+        logger.info("\n5b. Generating comprehensive forecast visualizations...")
+        visualizer = ForecastVisualizer(output_dir=OUTPUT_DIR)
+
+        # Create comprehensive comparison plot for first horizon
+        visualizer.plot_comprehensive_comparison(
+            predictions=predictions[:, 0].reshape(-1, 1),
+            actuals=actuals[:, 0].reshape(-1, 1),
+            title=f"Chronos-{MODEL_SIZE} - {TICKER} Comprehensive Analysis"
+        )
+
+        # Multi-horizon analysis
+        if predictions.shape[1] > 1:
+            logger.info("\n5c. Creating multi-horizon forecast analysis...")
+            horizon_names = [f"H+{i+1}" for i in range(predictions.shape[1])]
+            visualizer.plot_forecast_horizon_analysis(
+                predictions=predictions,
+                actuals=actuals,
+                horizon_names=horizon_names,
+                title=f"Chronos-{MODEL_SIZE} - Multi-Horizon Analysis"
+            )
+
+        # Reconstruct prices from returns
+        logger.info("\n5d. Reconstructing and visualizing price forecasts...")
+        # Get initial price from the stock data at the start of test period
+        test_start_idx = int(len(data['X_train']) + data['X_train'].shape[1])
+        stock_data = preprocessor.load_stock_data(ticker=TICKER, start_date="2022-01-01")
+        if test_start_idx < len(stock_data):
+            initial_price = stock_data['Close'].iloc[test_start_idx]
+
+            visualizer.plot_price_reconstruction(
+                returns_predictions=predictions[:, 0].reshape(-1, 1),
+                returns_actuals=actuals[:, 0].reshape(-1, 1),
+                initial_price=initial_price,
+                title=f"Chronos-{MODEL_SIZE} - {TICKER} Price Forecast vs Realized Prices"
+            )
 
         logger.info("\n" + "=" * 70)
         logger.info("✓ Chronos model test completed successfully!")

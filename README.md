@@ -134,6 +134,60 @@ prediction = forecast.median(dim=0).values
 # See SPECIALIZED_MODELS.md for full guide
 ```
 
+### Visualizing Forecasts
+
+```python
+from src.timeseries import ForecastVisualizer
+
+# Create visualizer
+visualizer = ForecastVisualizer(output_dir="./outputs")
+
+# 1. Comprehensive comparison (4-panel analysis)
+visualizer.plot_comprehensive_comparison(
+    predictions=predictions,
+    actuals=actuals,
+    title="Forecast Analysis"
+)
+# Creates: time series, scatter plot, error distribution, cumulative error
+
+# 2. Price reconstruction from returns
+visualizer.plot_price_reconstruction(
+    returns_predictions=returns_pred,
+    returns_actuals=returns_actual,
+    initial_price=100.0,  # Starting price
+    title="Price Forecast vs Realized Prices"
+)
+# Shows: predicted vs actual price paths, cumulative returns
+
+# 3. Multi-horizon accuracy analysis
+visualizer.plot_forecast_horizon_analysis(
+    predictions=predictions,  # Shape: (n_samples, n_horizons, n_features)
+    actuals=actuals,
+    horizon_names=["H+1", "H+2", "H+3", "H+5"],
+    title="Multi-Step Forecast Analysis"
+)
+# Shows: MAE, RMSE, Direction Accuracy across horizons
+
+# 4. Single time series comparison with metrics
+visualizer.plot_predictions_vs_actual(
+    predictions=predictions,
+    actuals=actuals,
+    dates=date_index,  # Optional
+    show_confidence=True,  # Show confidence intervals
+    confidence_lower=lower_bound,
+    confidence_upper=upper_bound
+)
+```
+
+**Key Visualization Features:**
+- **Price Reconstruction**: Convert return predictions back to prices
+- **Comprehensive Metrics**: MAE, RMSE, MAPE, R², Direction Accuracy
+- **Multi-Horizon Analysis**: Track accuracy degradation across forecast steps
+- **Confidence Intervals**: Visualize prediction uncertainty
+- **High-Quality Output**: 300 DPI PNG files, professional styling
+
+All examples now include these visualizations automatically!
+
 ## Project Structure
 
 ```

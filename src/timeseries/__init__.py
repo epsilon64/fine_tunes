@@ -11,6 +11,7 @@ from .specialized_models import (
     get_model_info as get_specialized_model_info,
     print_model_comparison as print_specialized_model_comparison,
 )
+from .visualization import ForecastVisualizer, plot_multi_step_forecast
 
 __all__ = [
     "TimeSeriesLLM",
@@ -25,4 +26,6 @@ __all__ = [
     "load_specialized_model",
     "get_specialized_model_info",
     "print_specialized_model_comparison",
+    "ForecastVisualizer",
+    "plot_multi_step_forecast",
 ]

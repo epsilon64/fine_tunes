@@ -21,6 +21,7 @@ from src.timeseries.tick_data_loader import TickDataLoader, print_provider_compa
 from src.timeseries.financial_preprocessor import FinancialDataPreprocessor
 from src.timeseries.ts_model import AdaptiveTimeSeriesLLM
 from src.timeseries.ts_trainer import TimeSeriesTrainer
+from src.timeseries.visualization import ForecastVisualizer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -258,6 +259,30 @@ def main():
     plt.savefig(f"{OUTPUT_DIR}/tick_forecasting_results.png", dpi=300)
     logger.info(f"Results plot saved to {OUTPUT_DIR}/tick_forecasting_results.png")
     plt.close()
+
+    # Use new ForecastVisualizer for comprehensive analysis
+    logger.info("\n8b. Generating comprehensive forecast visualizations...")
+    visualizer = ForecastVisualizer(output_dir=OUTPUT_DIR)
+
+    # Create comprehensive comparison plot
+    visualizer.plot_comprehensive_comparison(
+        predictions=y_pred.reshape(-1, 1),
+        actuals=y_test.reshape(-1, 1),
+        title=f"{TICKER} ({INTERVAL}) - Comprehensive Tick Forecast Analysis"
+    )
+
+    # Reconstruct prices from tick returns
+    logger.info("\n8c. Reconstructing and visualizing price forecasts from tick data...")
+    # Get initial price from tick data at the start of test period
+    test_start_idx = int(len(time_bars) * 0.8)
+    initial_price = time_bars['close'].iloc[test_start_idx]
+
+    visualizer.plot_price_reconstruction(
+        returns_predictions=y_pred.reshape(-1, 1),
+        returns_actuals=y_test.reshape(-1, 1),
+        initial_price=initial_price,
+        title=f"{TICKER} ({INTERVAL}) - Tick Price Forecast vs Realized Prices"
+    )
 
     # 9. Trading simulation
     logger.info("\n9. Simulating trading strategy...")
