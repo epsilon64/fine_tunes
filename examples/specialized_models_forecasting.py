@@ -103,6 +103,15 @@ def test_chronos_model():
                 logger.info(f"   y_test shape: {data['y_test'].shape}")
 
             # Take median of samples
+            # Forecast shape is typically [batch, num_samples, prediction_length]
+            # We want to take median over num_samples dimension
+            if len(forecast.shape) == 3:
+                # Remove batch dimension first
+                forecast = forecast.squeeze(0)  # Now [num_samples, prediction_length]
+                if i == 0:
+                    logger.info(f"   Forecast shape after squeeze: {forecast.shape}")
+
+            # Take median over samples (dim=0)
             pred = forecast.median(dim=0).values.numpy()
 
             # Debug first iteration
