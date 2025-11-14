@@ -12,9 +12,12 @@ A comprehensive framework for fine-tuning Large Language Models with efficient t
 - **Multiple Backend Support**: Compatible with HuggingFace transformers
 
 ### Time Series Forecasting
+- **Specialized Foundation Models**:
+  - **Chronos** (Amazon): T5-based, zero-shot forecasting, 5 model sizes (8M-710M params)
+  - **Lag-Llama**: Llama-based, probabilistic forecasting with uncertainty quantification
+- **Custom LLM Adaptation**: Adapt GPT-2, LLaMA, Mistral for time series
 - **Financial Time Series**: Specialized module for stock market price prediction
 - **Return Prediction**: Predict future returns based on historical prices/returns
-- **LLM-based Forecasting**: Leverage language model architectures for sequential prediction
 - **Tick Data Support**: Load high-frequency intraday data from multiple providers
   - Yahoo Finance (free, no API key needed)
   - Alpha Vantage (free tier: 500 calls/day)
@@ -107,6 +110,30 @@ preprocessor = FinancialDataPreprocessor()
 data = preprocessor.prepare_tick_data(tick_data)
 ```
 
+### Specialized Time Series Models (Zero-Shot!)
+
+```python
+from src.timeseries import ChronosModel
+
+# Load Chronos model (works without training!)
+model = ChronosModel(
+    model_size="small",  # tiny, mini, small, base, large
+    device="cpu"
+)
+
+# Generate zero-shot forecasts
+forecast = model.predict(
+    context=historical_data,
+    prediction_length=5,
+    num_samples=20  # For uncertainty quantification
+)
+
+# Get median prediction
+prediction = forecast.median(dim=0).values
+
+# See SPECIALIZED_MODELS.md for full guide
+```
+
 ## Project Structure
 
 ```
@@ -136,6 +163,7 @@ See the `examples/` directory for:
 - `timeseries_forecasting.py`: Financial time series prediction
 - `timeseries_detailed.py`: Comprehensive forecasting with error analysis
 - `tick_data_forecasting.py`: High-frequency tick data forecasting
+- `specialized_models_forecasting.py`: **NEW!** Zero-shot forecasting with Chronos/Lag-Llama
 
 ## Requirements
 

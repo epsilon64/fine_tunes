@@ -32,3 +32,9 @@ ipykernel>=6.25.0
 # Optional: For advanced features
 datasets>=2.14.0
 evaluate>=0.4.0
+
+# Optional: Specialized Time Series Models
+# For Chronos (Amazon's T5-based time series model):
+#   pip install git+https://github.com/amazon-science/chronos-forecasting.git
+# For Lag-Llama (requires GluonTS):
+#   pip install gluonts[torch]>=0.14.0
