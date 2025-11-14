@@ -104,15 +104,24 @@ class FinancialDataPreprocessor:
         """
         df = data.copy()
 
+        # Flatten MultiIndex columns if present (yfinance sometimes returns these)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
         # Standardize column names (handle both lowercase and uppercase)
         column_mapping = {}
         for col in df.columns:
-            lower_col = col.lower()
+            col_str = str(col)  # Convert to string in case it's not
+            lower_col = col_str.lower()
             if lower_col in ['close', 'open', 'high', 'low', 'volume']:
                 column_mapping[col] = lower_col.capitalize()
 
         if column_mapping:
             df = df.rename(columns=column_mapping)
+
+        # Ensure we have required columns
+        if 'Close' not in df.columns:
+            raise ValueError(f"Missing 'Close' column. Available columns: {df.columns.tolist()}")
 
         # Returns - use pandas method to properly handle length
         if self.return_type == "log":
@@ -136,8 +145,11 @@ class FinancialDataPreprocessor:
         rs = gain / loss
         df['rsi'] = 100 - (100 / (1 + rs))
 
-        # Volume change
-        df['volume_change'] = df['Volume'].pct_change()
+        # Volume change (check if Volume column exists)
+        if 'Volume' in df.columns:
+            df['volume_change'] = df['Volume'].pct_change()
+        else:
+            df['volume_change'] = 0.0  # Default if no volume data
 
         return df
 
@@ -367,6 +379,19 @@ class FinancialDataPreprocessor:
             DataFrame with tick features
         """
         df = tick_data.copy()
+
+        # Flatten MultiIndex columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        # Ensure lowercase column names for tick data
+        df.columns = df.columns.str.lower()
+
+        # Check for required columns
+        required_cols = ['close', 'high', 'low', 'volume']
+        missing = [col for col in required_cols if col not in df.columns]
+        if missing:
+            raise ValueError(f"Missing required columns for tick data: {missing}")
 
         # Tick returns - use pandas method to properly handle length
         if self.return_type == "log":
