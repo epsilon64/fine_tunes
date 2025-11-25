@@ -11,6 +11,7 @@ import pandas as pd
 from typing import Dict, List, Tuple
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import seaborn as sns
 from scipy import stats
 
@@ -36,11 +37,16 @@ class SimulationParams:
     # Information ratios to test (for multi-IR analysis)
     info_ratios: List[float] = None
 
+    # Tracking errors to test (for multi-TE analysis)
+    tracking_errors: List[float] = None
+
     def __post_init__(self):
         if self.periods is None:
             self.periods = [1, 3, 5, 10]
         if self.info_ratios is None:
             self.info_ratios = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]
+        if self.tracking_errors is None:
+            self.tracking_errors = [0.01, 0.02, 0.03, 0.04, 0.05]
 
 
 @dataclass
@@ -695,6 +701,309 @@ class MonteCarloSimulator:
 
         return fig
 
+    def run_full_3d_analysis(self):
+        """
+        Run Monte Carlo analysis across Information Ratios, Time Periods, AND Tracking Errors
+
+        Returns:
+            Dictionary with structure: {te: {ir: {period: [PerformanceMetrics]}}}
+        """
+        print("="*80)
+        print("3D MONTE CARLO ANALYSIS")
+        print("Varying Information Ratio × Time Period × Tracking Error")
+        print("="*80)
+        print(f"\nSimulation Parameters:")
+        print(f"  Market Annual Return:          {self.params.market_annual_return*100:.1f}%")
+        print(f"  Market Annual Volatility:      {self.params.market_annual_vol*100:.1f}%")
+        print(f"  Number of Simulations:         {self.params.n_simulations:,}")
+        print(f"  Information Ratios:            {self.params.info_ratios}")
+        print(f"  Time Periods:                  {self.params.periods} years")
+        print(f"  Tracking Errors:               {[f'{te*100:.0f}%' for te in self.params.tracking_errors]}")
+
+        total_runs = len(self.params.tracking_errors) * len(self.params.info_ratios) * len(self.params.periods)
+        print(f"\nTotal combinations: {total_runs:,} ({len(self.params.tracking_errors)} TEs × {len(self.params.info_ratios)} IRs × {len(self.params.periods)} periods)")
+        print(f"Total simulations: {total_runs * self.params.n_simulations:,}\n")
+
+        all_results = {}  # {te: {ir: {period: [PerformanceMetrics]}}}
+        current_run = 0
+
+        for te in self.params.tracking_errors:
+            print(f"\n{'='*80}")
+            print(f"TESTING TRACKING ERROR: {te*100:.0f}%")
+            print(f"{'='*80}")
+
+            # Update the TE parameter
+            self.params.strategy_tracking_error = te
+            all_results[te] = {}
+
+            for ir in self.params.info_ratios:
+                # Update the IR parameter
+                self.params.strategy_info_ratio = ir
+                all_results[te][ir] = {}
+
+                for period in self.params.periods:
+                    current_run += 1
+                    print(f"[{current_run}/{total_runs}] TE={te*100:.0f}%, IR={ir:.2f}, Period={period}Y... ",
+                          end='', flush=True)
+
+                    # Run simulations (suppress detailed progress)
+                    results = self.run_simulations(period, verbose=False)
+                    all_results[te][ir][period] = results
+
+                    # Calculate outperformance rate
+                    strategy_rets = np.array([r.strategy_return for r in results])
+                    market_rets = np.array([r.market_return for r in results])
+                    outperf_rate = np.sum(strategy_rets > market_rets) / len(results) * 100
+                    print(f"→ {outperf_rate:.1f}%")
+
+        # Create visualizations
+        self.create_3d_visualizations(all_results)
+        self.print_3d_summary(all_results)
+
+        return all_results
+
+    def print_3d_summary(self, all_results):
+        """Print summary tables for each tracking error level"""
+        print(f"\n{'='*80}")
+        print("OUTPERFORMANCE RATE MATRICES BY TRACKING ERROR")
+        print(f"{'='*80}\n")
+
+        for te in sorted(all_results.keys()):
+            print(f"\n{'─'*80}")
+            print(f"Tracking Error: {te*100:.0f}%")
+            print(f"{'─'*80}")
+
+            # Build matrix for this TE
+            ir_values = sorted(all_results[te].keys())
+            periods = sorted(self.params.periods)
+
+            matrix_data = []
+            for ir in ir_values:
+                row_data = {'IR': f'{ir:.2f}'}
+                for period in periods:
+                    results = all_results[te][ir][period]
+                    strategy_rets = np.array([r.strategy_return for r in results])
+                    market_rets = np.array([r.market_return for r in results])
+                    outperf_rate = np.sum(strategy_rets > market_rets) / len(results) * 100
+                    row_data[f'{period}Y'] = f'{outperf_rate:.1f}%'
+                matrix_data.append(row_data)
+
+            df = pd.DataFrame(matrix_data)
+            print(df.to_string(index=False))
+            print()
+
+    def create_3d_visualizations(self, all_results,
+                                 save_path: str = 'monte_carlo_3d_results.png'):
+        """
+        Create comprehensive visualizations for 3D analysis (TE × IR × Period)
+
+        Args:
+            all_results: Dictionary {te: {ir: {period: [PerformanceMetrics]}}}
+            save_path: Path to save the figure
+        """
+        te_values = sorted(all_results.keys())
+        ir_values = sorted(all_results[te_values[0]].keys())
+        periods = sorted(self.params.periods)
+
+        # Create large figure with multiple subplots
+        n_te = len(te_values)
+        fig = plt.figure(figsize=(20, 4 * n_te + 6))
+
+        # Use gridspec for flexible layout
+        gs = fig.add_gridspec(n_te + 2, 4, hspace=0.4, wspace=0.3,
+                             height_ratios=[1] * n_te + [1.2, 1.2])
+
+        # Top section: Heatmaps for each tracking error
+        for te_idx, te in enumerate(te_values):
+            ax = fig.add_subplot(gs[te_idx, :])
+
+            # Build matrix
+            matrix = np.zeros((len(ir_values), len(periods)))
+            for i, ir in enumerate(ir_values):
+                for j, period in enumerate(periods):
+                    results = all_results[te][ir][period]
+                    strategy_rets = np.array([r.strategy_return for r in results])
+                    market_rets = np.array([r.market_return for r in results])
+                    matrix[i, j] = np.sum(strategy_rets > market_rets) / len(results) * 100
+
+            # Create heatmap
+            im = ax.imshow(matrix, cmap='RdYlGn', aspect='auto', vmin=45, vmax=100)
+
+            # Set ticks
+            ax.set_xticks(np.arange(len(periods)))
+            ax.set_yticks(np.arange(len(ir_values)))
+            ax.set_xticklabels([f'{p}Y' for p in periods], fontsize=10)
+            ax.set_yticklabels([f'{ir:.2f}' for ir in ir_values], fontsize=9)
+
+            # Add text annotations
+            for i in range(len(ir_values)):
+                for j in range(len(periods)):
+                    text = ax.text(j, i, f'{matrix[i, j]:.0f}%',
+                                 ha="center", va="center", color="black",
+                                 fontsize=9, fontweight='bold')
+
+            # Add colorbar on the right
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.set_label('Win Rate (%)', rotation=270, labelpad=15, fontsize=10)
+
+            ax.set_xlabel('Time Period', fontsize=11, fontweight='bold')
+            ax.set_ylabel('Information Ratio', fontsize=11, fontweight='bold')
+            ax.set_title(f'Tracking Error = {te*100:.0f}% | Outperformance Rate Matrix',
+                        fontsize=12, fontweight='bold', pad=10)
+
+        # Bottom section: Comparative analysis plots
+
+        # Plot 1: Effect of Tracking Error on Outperformance (for selected IR/Period combos)
+        ax_bottom1 = fig.add_subplot(gs[n_te, :2])
+
+        # Select representative IR/Period combinations
+        test_configs = [
+            (0.3, 1, 'IR=0.3, 1Y'),
+            (0.5, 5, 'IR=0.5, 5Y'),
+            (0.75, 10, 'IR=0.75, 10Y'),
+            (1.0, 10, 'IR=1.0, 10Y')
+        ]
+
+        colors_line = plt.cm.tab10(np.arange(len(test_configs)))
+
+        for (ir, period, label), color in zip(test_configs, colors_line):
+            if ir in ir_values and period in periods:
+                rates = []
+                for te in te_values:
+                    results = all_results[te][ir][period]
+                    strategy_rets = np.array([r.strategy_return for r in results])
+                    market_rets = np.array([r.market_return for r in results])
+                    rate = np.sum(strategy_rets > market_rets) / len(results) * 100
+                    rates.append(rate)
+
+                ax_bottom1.plot([te*100 for te in te_values], rates, marker='o',
+                              linewidth=2.5, label=label, color=color, markersize=8)
+
+        ax_bottom1.axhline(50, color='red', linestyle='--', linewidth=1.5, alpha=0.5)
+        ax_bottom1.set_xlabel('Tracking Error (%)', fontsize=12, fontweight='bold')
+        ax_bottom1.set_ylabel('Outperformance Rate (%)', fontsize=12, fontweight='bold')
+        ax_bottom1.set_title('Impact of Tracking Error on Win Rate\n(Selected Configurations)',
+                            fontsize=13, fontweight='bold')
+        ax_bottom1.legend(loc='best', fontsize=10)
+        ax_bottom1.grid(True, alpha=0.3)
+        ax_bottom1.set_ylim(45, 105)
+
+        # Plot 2: 3D scatter showing relationship between TE, IR, and Win Rate (10Y period)
+        ax_bottom2 = fig.add_subplot(gs[n_te, 2:], projection='3d')
+
+        # Collect data for 10Y period
+        if 10 in periods:
+            te_scatter = []
+            ir_scatter = []
+            rate_scatter = []
+
+            for te in te_values:
+                for ir in ir_values:
+                    results = all_results[te][ir][10]
+                    strategy_rets = np.array([r.strategy_return for r in results])
+                    market_rets = np.array([r.market_return for r in results])
+                    rate = np.sum(strategy_rets > market_rets) / len(results) * 100
+
+                    te_scatter.append(te * 100)
+                    ir_scatter.append(ir)
+                    rate_scatter.append(rate)
+
+            # Create scatter plot with color mapping
+            scatter = ax_bottom2.scatter(te_scatter, ir_scatter, rate_scatter,
+                                        c=rate_scatter, cmap='RdYlGn', s=100,
+                                        vmin=45, vmax=100, alpha=0.8, edgecolors='black')
+
+            ax_bottom2.set_xlabel('Tracking Error (%)', fontsize=10, fontweight='bold', labelpad=8)
+            ax_bottom2.set_ylabel('Information Ratio', fontsize=10, fontweight='bold', labelpad=8)
+            ax_bottom2.set_zlabel('Win Rate (%)', fontsize=10, fontweight='bold', labelpad=8)
+            ax_bottom2.set_title('3D View: TE × IR → Win Rate\n(10 Year Period)',
+                                fontsize=12, fontweight='bold', pad=15)
+
+            cbar = plt.colorbar(scatter, ax=ax_bottom2, shrink=0.6, pad=0.1)
+            cbar.set_label('Win Rate (%)', rotation=270, labelpad=15, fontsize=9)
+
+        # Plot 3: Tracking Error impact across all IRs (averaged across periods)
+        ax_bottom3 = fig.add_subplot(gs[n_te + 1, :2])
+
+        colors_ir = plt.cm.viridis(np.linspace(0, 1, len(ir_values)))
+
+        for ir, color in zip(ir_values, colors_ir):
+            avg_rates = []
+            for te in te_values:
+                # Average across all periods for this TE/IR combo
+                rates_for_te = []
+                for period in periods:
+                    results = all_results[te][ir][period]
+                    strategy_rets = np.array([r.strategy_return for r in results])
+                    market_rets = np.array([r.market_return for r in results])
+                    rate = np.sum(strategy_rets > market_rets) / len(results) * 100
+                    rates_for_te.append(rate)
+                avg_rates.append(np.mean(rates_for_te))
+
+            ax_bottom3.plot([te*100 for te in te_values], avg_rates, marker='o',
+                          linewidth=2, label=f'IR={ir:.2f}', color=color, alpha=0.8)
+
+        ax_bottom3.axhline(50, color='red', linestyle='--', linewidth=1.5, alpha=0.5)
+        ax_bottom3.set_xlabel('Tracking Error (%)', fontsize=12, fontweight='bold')
+        ax_bottom3.set_ylabel('Avg Win Rate (%) Across All Periods', fontsize=12, fontweight='bold')
+        ax_bottom3.set_title('Average Outperformance Rate vs Tracking Error\n(All Time Periods)',
+                            fontsize=13, fontweight='bold')
+        ax_bottom3.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8, ncol=1)
+        ax_bottom3.grid(True, alpha=0.3)
+
+        # Plot 4: Heatmap showing optimal TE for each IR/Period combo
+        ax_bottom4 = fig.add_subplot(gs[n_te + 1, 2:])
+
+        # Find best TE for each IR/Period combination
+        best_te_matrix = np.zeros((len(ir_values), len(periods)))
+        best_rate_matrix = np.zeros((len(ir_values), len(periods)))
+
+        for i, ir in enumerate(ir_values):
+            for j, period in enumerate(periods):
+                best_rate = 0
+                best_te = te_values[0]
+
+                for te in te_values:
+                    results = all_results[te][ir][period]
+                    strategy_rets = np.array([r.strategy_return for r in results])
+                    market_rets = np.array([r.market_return for r in results])
+                    rate = np.sum(strategy_rets > market_rets) / len(results) * 100
+
+                    if rate > best_rate:
+                        best_rate = rate
+                        best_te = te
+
+                best_te_matrix[i, j] = best_te * 100
+                best_rate_matrix[i, j] = best_rate
+
+        im = ax_bottom4.imshow(best_te_matrix, cmap='viridis', aspect='auto')
+
+        ax_bottom4.set_xticks(np.arange(len(periods)))
+        ax_bottom4.set_yticks(np.arange(len(ir_values)))
+        ax_bottom4.set_xticklabels([f'{p}Y' for p in periods], fontsize=10)
+        ax_bottom4.set_yticklabels([f'{ir:.2f}' for ir in ir_values], fontsize=9)
+
+        # Annotate with optimal TE and win rate
+        for i in range(len(ir_values)):
+            for j in range(len(periods)):
+                text = ax_bottom4.text(j, i,
+                                      f'{best_te_matrix[i, j]:.0f}%\n({best_rate_matrix[i, j]:.0f}%)',
+                                      ha="center", va="center", color="white",
+                                      fontsize=8, fontweight='bold')
+
+        cbar = plt.colorbar(im, ax=ax_bottom4)
+        cbar.set_label('Optimal TE (%)', rotation=270, labelpad=15, fontsize=10)
+
+        ax_bottom4.set_xlabel('Time Period', fontsize=11, fontweight='bold')
+        ax_bottom4.set_ylabel('Information Ratio', fontsize=11, fontweight='bold')
+        ax_bottom4.set_title('Optimal Tracking Error for Each Configuration\n(Value shows TE% and Win Rate%)',
+                            fontsize=12, fontweight='bold', pad=10)
+
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"\n3D visualization saved to: {save_path}")
+
+        return fig
+
 
 def main():
     """Main execution function"""
@@ -702,24 +1011,25 @@ def main():
     params = SimulationParams(
         market_annual_return=0.08,      # 8% annual return
         market_annual_vol=0.16,         # 16% annual volatility
-        strategy_info_ratio=0.5,        # IR of 0.5 (moderate skill) - will be varied
-        strategy_tracking_error=0.05,   # 5% tracking error
-        n_simulations=10000,            # 10,000 simulations
+        strategy_info_ratio=0.5,        # Base IR (will be varied)
+        strategy_tracking_error=0.05,   # Base TE (will be varied)
+        n_simulations=10000,            # 10,000 simulations per combination
         periods=[1, 3, 5, 10],          # Analyze 1, 3, 5, and 10 year periods
-        info_ratios=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]  # IR values to test
+        info_ratios=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0],  # IR values to test
+        tracking_errors=[0.01, 0.02, 0.03, 0.04, 0.05]  # TE values to test
     )
 
     # Create simulator
     simulator = MonteCarloSimulator(params)
 
-    # Run multi-IR analysis
-    results = simulator.run_multi_ir_analysis()
+    # Run full 3D analysis (TE × IR × Period)
+    results = simulator.run_full_3d_analysis()
 
     print("\n" + "="*80)
     print("ANALYSIS COMPLETE")
     print("="*80)
     print(f"\nResults saved:")
-    print("  - monte_carlo_multi_ir_results.png (comprehensive visualizations)")
+    print("  - monte_carlo_3d_results.png (comprehensive 3D visualizations)")
 
 
 if __name__ == "__main__":
