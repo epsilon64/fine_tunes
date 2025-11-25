@@ -33,9 +33,14 @@ class SimulationParams:
     # Time periods to analyze (in years)
     periods: List[int] = None
 
+    # Information ratios to test (for multi-IR analysis)
+    info_ratios: List[float] = None
+
     def __post_init__(self):
         if self.periods is None:
             self.periods = [1, 3, 5, 10]
+        if self.info_ratios is None:
+            self.info_ratios = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]
 
 
 @dataclass
@@ -179,12 +184,13 @@ class MonteCarloSimulator:
 
         return metrics
 
-    def run_simulations(self, period_years: int) -> List[PerformanceMetrics]:
+    def run_simulations(self, period_years: int, verbose: bool = True) -> List[PerformanceMetrics]:
         """
         Run multiple Monte Carlo simulations for a given time period
 
         Args:
             period_years: Time period in years
+            verbose: If True, print progress messages
 
         Returns:
             List of PerformanceMetrics for each simulation
@@ -192,10 +198,11 @@ class MonteCarloSimulator:
         n_days = period_years * self.params.trading_days_per_year
         results = []
 
-        print(f"\nRunning {self.params.n_simulations} simulations for {period_years} year(s)...")
+        if verbose:
+            print(f"\nRunning {self.params.n_simulations} simulations for {period_years} year(s)...")
 
         for i in range(self.params.n_simulations):
-            if (i + 1) % 1000 == 0:
+            if verbose and (i + 1) % 1000 == 0:
                 print(f"  Completed {i + 1}/{self.params.n_simulations} simulations")
 
             metrics = self.run_single_simulation(n_days)
@@ -454,6 +461,240 @@ class MonteCarloSimulator:
         print(df.to_string(index=False))
         print()
 
+    def run_multi_ir_analysis(self):
+        """
+        Run Monte Carlo analysis across multiple Information Ratios and time periods
+
+        Returns:
+            Dictionary with structure: {ir_value: {period: summary}}
+        """
+        print("="*80)
+        print("MULTI-DIMENSIONAL MONTE CARLO ANALYSIS")
+        print("Varying Information Ratio and Time Period")
+        print("="*80)
+        print(f"\nSimulation Parameters:")
+        print(f"  Market Annual Return:          {self.params.market_annual_return*100:.1f}%")
+        print(f"  Market Annual Volatility:      {self.params.market_annual_vol*100:.1f}%")
+        print(f"  Strategy Tracking Error:       {self.params.strategy_tracking_error*100:.1f}%")
+        print(f"  Number of Simulations:         {self.params.n_simulations:,}")
+        print(f"  Information Ratios:            {self.params.info_ratios}")
+        print(f"  Time Periods:                  {self.params.periods} years")
+
+        all_results = {}  # {ir: {period: [PerformanceMetrics]}}
+
+        total_runs = len(self.params.info_ratios) * len(self.params.periods)
+        current_run = 0
+
+        for ir in self.params.info_ratios:
+            print(f"\n{'='*80}")
+            print(f"TESTING INFORMATION RATIO: {ir:.2f}")
+            print(f"{'='*80}")
+
+            # Update the IR parameter
+            self.params.strategy_info_ratio = ir
+            all_results[ir] = {}
+
+            for period in self.params.periods:
+                current_run += 1
+                print(f"[Progress: {current_run}/{total_runs}] Running simulations for IR={ir:.2f}, Period={period}Y... ", end='', flush=True)
+
+                # Run simulations (suppress detailed progress)
+                results = self.run_simulations(period, verbose=False)
+                all_results[ir][period] = results
+
+                # Analyze results
+                summary = self.analyze_results(results, period)
+                print(f"→ Outperformance Rate: {summary['outperformance_rate']:.1f}%")
+
+        # Create matrix and visualizations
+        self.create_outperformance_matrix(all_results)
+        self.create_multi_ir_visualizations(all_results)
+
+        return all_results
+
+    def create_outperformance_matrix(self, all_results: Dict[float, Dict[int, List[PerformanceMetrics]]]):
+        """
+        Create and display a matrix of outperformance rates across IR and time periods
+
+        Args:
+            all_results: Dictionary {ir_value: {period: [PerformanceMetrics]}}
+        """
+        print(f"\n{'='*80}")
+        print("OUTPERFORMANCE RATE MATRIX")
+        print("(Percentage of simulations where strategy beats market)")
+        print(f"{'='*80}\n")
+
+        # Prepare data for matrix
+        ir_values = sorted(all_results.keys())
+        periods = sorted(self.params.periods)
+
+        # Build matrix data
+        matrix_data = []
+        for ir in ir_values:
+            row_data = {'IR': f'{ir:.2f}'}
+            for period in periods:
+                results = all_results[ir][period]
+                strategy_rets = np.array([r.strategy_return for r in results])
+                market_rets = np.array([r.market_return for r in results])
+                outperf_rate = np.sum(strategy_rets > market_rets) / len(results) * 100
+                row_data[f'{period}Y'] = f'{outperf_rate:.1f}%'
+            matrix_data.append(row_data)
+
+        # Create DataFrame
+        df = pd.DataFrame(matrix_data)
+
+        # Display the matrix
+        print(df.to_string(index=False))
+        print()
+
+        # Also create numeric version for heatmap
+        numeric_matrix = np.zeros((len(ir_values), len(periods)))
+        for i, ir in enumerate(ir_values):
+            for j, period in enumerate(periods):
+                results = all_results[ir][period]
+                strategy_rets = np.array([r.strategy_return for r in results])
+                market_rets = np.array([r.market_return for r in results])
+                numeric_matrix[i, j] = np.sum(strategy_rets > market_rets) / len(results) * 100
+
+        return df, numeric_matrix, ir_values, periods
+
+    def create_multi_ir_visualizations(self, all_results: Dict[float, Dict[int, List[PerformanceMetrics]]],
+                                      save_path: str = 'monte_carlo_multi_ir_results.png'):
+        """
+        Create visualizations for multi-IR analysis including heatmap
+
+        Args:
+            all_results: Dictionary {ir_value: {period: [PerformanceMetrics]}}
+            save_path: Path to save the figure
+        """
+        # Get matrix data
+        df, matrix, ir_values, periods = self.create_outperformance_matrix(all_results)
+
+        # Create figure with multiple subplots
+        fig = plt.figure(figsize=(18, 12))
+        gs = fig.add_gridspec(3, 2, hspace=0.3, wspace=0.3)
+
+        # Plot 1: Heatmap of Outperformance Rates (spans 2 columns)
+        ax1 = fig.add_subplot(gs[0, :])
+        im = ax1.imshow(matrix, cmap='RdYlGn', aspect='auto', vmin=40, vmax=100)
+
+        # Set ticks
+        ax1.set_xticks(np.arange(len(periods)))
+        ax1.set_yticks(np.arange(len(ir_values)))
+        ax1.set_xticklabels([f'{p}Y' for p in periods])
+        ax1.set_yticklabels([f'{ir:.2f}' for ir in ir_values])
+
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax1)
+        cbar.set_label('Outperformance Rate (%)', rotation=270, labelpad=20, fontsize=12)
+
+        # Add text annotations
+        for i in range(len(ir_values)):
+            for j in range(len(periods)):
+                text = ax1.text(j, i, f'{matrix[i, j]:.1f}%',
+                               ha="center", va="center", color="black", fontsize=10, fontweight='bold')
+
+        ax1.set_xlabel('Time Period', fontsize=14, fontweight='bold')
+        ax1.set_ylabel('Information Ratio', fontsize=14, fontweight='bold')
+        ax1.set_title('Strategy Outperformance Rate Heatmap\n(Information Ratio × Time Period)',
+                     fontsize=16, fontweight='bold', pad=20)
+
+        # Plot 2: Outperformance rate vs IR for different periods
+        ax2 = fig.add_subplot(gs[1, 0])
+        colors = plt.cm.viridis(np.linspace(0, 1, len(periods)))
+        for j, (period, color) in enumerate(zip(periods, colors)):
+            rates = [matrix[i, j] for i in range(len(ir_values))]
+            ax2.plot(ir_values, rates, marker='o', linewidth=2, label=f'{period}Y', color=color)
+
+        ax2.axhline(50, color='red', linestyle='--', linewidth=1, alpha=0.5, label='50% (Random)')
+        ax2.set_xlabel('Information Ratio', fontsize=12)
+        ax2.set_ylabel('Outperformance Rate (%)', fontsize=12)
+        ax2.set_title('Outperformance Rate vs Information Ratio', fontsize=14, fontweight='bold')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        ax2.set_ylim(40, 105)
+
+        # Plot 3: Outperformance rate vs Period for different IRs
+        ax3 = fig.add_subplot(gs[1, 1])
+
+        # Select a subset of IRs to plot for clarity (adaptively based on available IRs)
+        n_irs = len(ir_values)
+        if n_irs >= 8:
+            selected_ir_indices = [0, 2, 4, 6, 7]  # For full 8 IRs
+        elif n_irs >= 5:
+            selected_ir_indices = [0, n_irs//2, n_irs-1]
+        else:
+            selected_ir_indices = list(range(n_irs))  # Use all if few IRs
+
+        colors_ir = plt.cm.plasma(np.linspace(0, 1, len(selected_ir_indices)))
+
+        for idx, (ir_idx, color) in enumerate(zip(selected_ir_indices, colors_ir)):
+            ir = ir_values[ir_idx]
+            rates = matrix[ir_idx, :]
+            ax3.plot(periods, rates, marker='o', linewidth=2, label=f'IR={ir:.2f}', color=color)
+
+        ax3.axhline(50, color='red', linestyle='--', linewidth=1, alpha=0.5, label='50% (Random)')
+        ax3.set_xlabel('Time Period (Years)', fontsize=12)
+        ax3.set_ylabel('Outperformance Rate (%)', fontsize=12)
+        ax3.set_title('Outperformance Rate vs Time Period', fontsize=14, fontweight='bold')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        ax3.set_ylim(40, 105)
+
+        # Plot 4: Distribution of IRs for different target IRs (1 year)
+        ax4 = fig.add_subplot(gs[2, 0])
+
+        # Select IRs that exist in the results
+        candidate_irs = [0.1, 0.3, 0.5, 1.0]
+        selected_irs = [ir for ir in candidate_irs if ir in all_results]
+
+        # If none of the candidates exist, use some that do
+        if not selected_irs:
+            selected_irs = sorted(list(all_results.keys()))[:4]
+
+        colors_dist = plt.cm.coolwarm(np.linspace(0, 1, len(selected_irs)))
+
+        for target_ir, color in zip(selected_irs, colors_dist):
+            if target_ir in all_results and 1 in all_results[target_ir]:
+                results = all_results[target_ir][1]  # 1 year
+                realized_irs = [r.information_ratio for r in results]
+                ax4.hist(realized_irs, bins=30, alpha=0.5, label=f'Target IR={target_ir:.2f}',
+                        color=color, density=True)
+
+        ax4.set_xlabel('Realized Information Ratio', fontsize=12)
+        ax4.set_ylabel('Density', fontsize=12)
+        ax4.set_title('Realized IR Distribution (1 Year Period)', fontsize=14, fontweight='bold')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+
+        # Plot 5: Mean relative performance by IR and period
+        ax5 = fig.add_subplot(gs[2, 1])
+
+        # Calculate mean relative performance
+        mean_rel_perf = np.zeros((len(ir_values), len(periods)))
+        for i, ir in enumerate(ir_values):
+            for j, period in enumerate(periods):
+                results = all_results[ir][period]
+                rel_perfs = [r.relative_performance * 100 for r in results]
+                mean_rel_perf[i, j] = np.mean(rel_perfs)
+
+        # Plot lines for each IR
+        for i, (ir, color) in enumerate(zip(ir_values, plt.cm.viridis(np.linspace(0, 1, len(ir_values))))):
+            ax5.plot(periods, mean_rel_perf[i, :], marker='o', linewidth=2,
+                    label=f'IR={ir:.2f}', color=color, alpha=0.7)
+
+        ax5.axhline(0, color='red', linestyle='--', linewidth=1, alpha=0.5)
+        ax5.set_xlabel('Time Period (Years)', fontsize=12)
+        ax5.set_ylabel('Mean Relative Performance (%)', fontsize=12)
+        ax5.set_title('Mean Excess Return vs Period', fontsize=14, fontweight='bold')
+        ax5.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        ax5.grid(True, alpha=0.3)
+
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"\nMulti-IR visualization saved to: {save_path}")
+
+        return fig
+
 
 def main():
     """Main execution function"""
@@ -461,21 +702,24 @@ def main():
     params = SimulationParams(
         market_annual_return=0.08,      # 8% annual return
         market_annual_vol=0.16,         # 16% annual volatility
-        strategy_info_ratio=0.5,        # IR of 0.5 (moderate skill)
+        strategy_info_ratio=0.5,        # IR of 0.5 (moderate skill) - will be varied
         strategy_tracking_error=0.05,   # 5% tracking error
         n_simulations=10000,            # 10,000 simulations
-        periods=[1, 3, 5, 10]           # Analyze 1, 3, 5, and 10 year periods
+        periods=[1, 3, 5, 10],          # Analyze 1, 3, 5, and 10 year periods
+        info_ratios=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]  # IR values to test
     )
 
     # Create simulator
     simulator = MonteCarloSimulator(params)
 
-    # Run full analysis
-    results, summaries = simulator.run_full_analysis()
+    # Run multi-IR analysis
+    results = simulator.run_multi_ir_analysis()
 
-    print("\n" + "="*70)
+    print("\n" + "="*80)
     print("ANALYSIS COMPLETE")
-    print("="*70)
+    print("="*80)
+    print(f"\nResults saved:")
+    print("  - monte_carlo_multi_ir_results.png (comprehensive visualizations)")
 
 
 if __name__ == "__main__":
