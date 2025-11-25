@@ -9,23 +9,26 @@ This script performs Monte Carlo simulations to test strategy performance agains
 The simulation:
 - **Simulates market index returns** using configurable mean and volatility parameters
 - **Generates strategy returns** based on a target Information Ratio
+- **Multi-dimensional analysis**: Tests across multiple Information Ratios (0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0) and time periods (1, 3, 5, 10 years)
+- **Outperformance matrix**: 2D matrix showing win rates across IR × Time Period dimensions
 - **Computes three key performance metrics:**
   - **Information Ratio**: Measures risk-adjusted excess returns
   - **Relative Performance**: Simple difference between strategy and market returns
   - **Beta-Adjusted Relative Performance**: Jensen's Alpha accounting for market exposure
 - **Measures outperformance frequency**: How often the strategy beats the market
-- **Analyzes multiple time horizons**: Default periods are 1, 3, 5, and 10 years
-- **Creates comprehensive visualizations**: Distribution plots and comparison charts
+- **Creates comprehensive visualizations**: Heatmaps, distribution plots, and comparison charts
 
 ## Usage
 
 ### Basic Usage
 
-Simply run the script with default parameters:
+Simply run the script with default parameters to perform multi-dimensional analysis across 8 Information Ratios and 4 time periods:
 
 ```bash
 python examples/monte_carlo_strategy_sim.py
 ```
+
+This will run 32 combinations (8 IRs × 4 periods) with 10,000 simulations each (320,000 total simulations).
 
 ### Customizing Parameters
 
@@ -35,10 +38,11 @@ You can modify the simulation parameters by editing the `SimulationParams` in th
 params = SimulationParams(
     market_annual_return=0.08,      # 8% annual market return
     market_annual_vol=0.16,         # 16% annual market volatility
-    strategy_info_ratio=0.5,        # Information Ratio of 0.5
+    strategy_info_ratio=0.5,        # Base IR (will be varied across info_ratios)
     strategy_tracking_error=0.05,   # 5% tracking error
-    n_simulations=10000,            # Number of Monte Carlo runs
-    periods=[1, 3, 5, 10]           # Time periods to analyze (years)
+    n_simulations=10000,            # Number of Monte Carlo runs per combination
+    periods=[1, 3, 5, 10],          # Time periods to analyze (years)
+    info_ratios=[0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]  # IRs to test
 )
 ```
 
@@ -58,46 +62,74 @@ params = SimulationParams(
   - Higher values = more active management
 
 #### Simulation Parameters
-- `n_simulations`: Number of Monte Carlo simulations to run (default: 10,000)
+- `n_simulations`: Number of Monte Carlo simulations to run per combination (default: 10,000)
 - `periods`: List of time periods to analyze in years (default: [1, 3, 5, 10])
+- `info_ratios`: List of Information Ratios to test (default: [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0])
 
 ## Output
 
 ### Console Output
 
-The script prints detailed statistics for each time period:
+The script outputs an **Outperformance Rate Matrix** showing the percentage of simulations where the strategy beats the market across all combinations of Information Ratio and time period:
 
-1. **Information Ratio Statistics**: Mean, median, standard deviation, and percentiles
-2. **Relative Performance Statistics**: Distribution of excess returns vs. market
-3. **Beta-Adjusted Performance**: Jensen's Alpha statistics
-4. **Outperformance Analysis**: How often the strategy beats the market
-5. **Average Returns**: Mean returns for both strategy and market
+```
+OUTPERFORMANCE RATE MATRIX
+(Percentage of simulations where strategy beats market)
 
-### Visualization
+  IR    1Y    3Y    5Y   10Y
+0.05 50.6% 52.4% 51.4% 52.4%
+0.10 53.0% 54.9% 56.7% 57.8%
+0.20 56.1% 60.4% 64.2% 69.6%
+0.30 60.7% 67.7% 71.0% 78.3%
+0.40 64.6% 73.2% 78.6% 85.7%
+0.50 67.5% 79.0% 84.2% 91.6%
+0.75 75.2% 87.5% 93.1% 98.1%
+1.00 82.6% 94.4% 97.8% 99.7%
+```
 
-A comprehensive visualization file `monte_carlo_results.png` is generated with four plots:
+This matrix clearly shows:
+- **Horizontal trend** (across columns): Longer time periods increase outperformance probability
+- **Vertical trend** (down rows): Higher Information Ratios lead to higher win rates
+- **Key insight**: Even modest skill (IR 0.3-0.5) yields 70-91% win rates over 5-10 years
 
-1. **Information Ratio Distribution**: Shows the distribution of realized IRs across simulations
-2. **Relative Performance Distribution**: Distribution of excess returns
-3. **Outperformance Rate by Period**: Bar chart showing win rates for each time horizon
-4. **Beta-Adjusted Performance Distribution**: Jensen's Alpha distribution
+### Visualizations
+
+A comprehensive visualization file `monte_carlo_multi_ir_results.png` is generated with six plots:
+
+1. **Outperformance Rate Heatmap**: Color-coded matrix showing win rates across IR × Time Period
+2. **Outperformance vs IR**: Line plots showing how win rates vary with Information Ratio for each period
+3. **Outperformance vs Period**: Line plots showing how win rates increase over time for different IRs
+4. **Realized IR Distributions**: Histograms showing distribution of realized IRs for different target IRs
+5. **Mean Relative Performance**: Trends showing cumulative alpha growth over time
 
 ## Key Insights from Results
 
-### Time Horizon Effects
+### Multi-Dimensional Analysis Findings
 
-The simulation demonstrates several important statistical properties:
+The outperformance rate matrix reveals critical patterns in strategy performance:
 
-1. **Convergence**: As the time horizon increases, the realized Information Ratio converges toward the expected value (standard deviation decreases)
+1. **Skill Matters**: Information Ratio is the dominant factor in long-term success
+   - IR 0.05 (minimal skill): ~50-52% win rate across all periods (barely better than random)
+   - IR 0.50 (moderate skill): 67.5% (1Y) → 91.6% (10Y)
+   - IR 1.00 (high skill): 82.6% (1Y) → 99.7% (10Y)
 
-2. **Outperformance Probability**: Longer time horizons increase the probability of outperformance
-   - 1 year: ~67% outperformance rate
-   - 10 years: ~92% outperformance rate
+2. **Time Diversification Effect**: Longer horizons dramatically increase success probability
+   - For IR 0.50: +24.1 percentage points from 1Y to 10Y
+   - For IR 0.20: +13.5 percentage points from 1Y to 10Y
+   - Effect is stronger for higher IRs (more skill = more time benefit)
 
-3. **Cumulative Alpha**: The cumulative benefit of skill compounds over time
-   - Mean relative performance grows from ~2.7% (1Y) to ~64% (10Y)
+3. **Convergence to Certainty**: The combination of skill and time approaches certainty
+   - IR 0.75 + 10Y = 98.1% win rate
+   - IR 1.00 + 10Y = 99.7% win rate (virtually guaranteed outperformance)
 
-4. **Statistical Significance**: Longer periods make it easier to distinguish skill from luck
+4. **Patience Threshold**: Moderate skill requires patience to manifest
+   - IR 0.30 needs ~5 years to reach 71% win rate
+   - IR 0.50 needs ~3 years to reach 79% win rate
+   - IR 0.75 needs just 1 year to reach 75% win rate
+
+5. **Statistical Significance**: Longer periods make it easier to distinguish skill from luck
+   - 1 year: Wide variation in outcomes even with skill
+   - 10 years: Skill-based strategies consistently outperform
 
 ### Understanding Information Ratio
 
